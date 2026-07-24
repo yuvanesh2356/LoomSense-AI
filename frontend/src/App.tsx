@@ -1,12 +1,15 @@
 import React, { createContext, useContext, useEffect, useState } from "react";
-import {
-  BrowserRouter, Routes, Route, Navigate, Link, useNavigate, useLocation,
-} from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate, useNavigate } from "react-router-dom";
 import { login as apiLogin, getMe, MeResponse } from "./api";
 import Dashboard from "./pages/Dashboard";
 import ForecastPage from "./pages/Forecast";
 import IncomePage from "./pages/Income";
 import { Button, Card } from "./components/ui";
+import LandingPage from "./landing/LandingPage";
+import { APP_NAME, APP_TAGLINE } from "./design-system/brand";
+import ProtectedLayout from "./layouts/ProtectedLayout";
+import ComingSoonPage from "./pages/ComingSoonPage";
+import { NAV_ITEMS, UTILITY_NAV_ITEMS } from "./config/navigation";
 
 // --- Auth context ------------------------------------------------------------
 interface AuthContextValue {
@@ -80,7 +83,7 @@ function LoginPage() {
       const result = await apiLogin(username, password);
       localStorage.setItem("ls_token", result.token);
       await refresh();
-      navigate("/");
+      navigate("/dashboard");
     } catch {
       setError("Invalid username or password.");
     } finally {
@@ -92,8 +95,8 @@ function LoginPage() {
     <div className="min-h-screen bg-[#FBF7F0] flex items-center justify-center px-4">
       <div className="w-full max-w-sm">
         <div className="text-center mb-8">
-          <div className="text-3xl font-bold text-[#2B3A67]">LoomSense AI</div>
-          <p className="text-[#5B6B7A] mt-1">Know what to weave, before you weave it.</p>
+          <div className="text-3xl font-bold text-[#2B3A67]">{APP_NAME}</div>
+          <p className="text-[#5B6B7A] mt-1">{APP_TAGLINE}</p>
         </div>
         <Card className="p-6">
           <form onSubmit={handleSubmit} className="space-y-4">
@@ -132,95 +135,48 @@ function LoginPage() {
   );
 }
 
-// --- Layout with nav -----------------------------------------------------------
-function AppLayout({ children }: { children: React.ReactNode }) {
-  const { me, logout } = useAuth();
-  const location = useLocation();
-
-  const navItem = (to: string, label: string) => (
-    <Link
-      to={to}
-      className={`px-4 py-2 rounded-lg text-sm font-medium transition ${
-        location.pathname === to
-          ? "bg-[#2B3A67] text-white"
-          : "text-[#2B3A67] hover:bg-[#2B3A67]/10"
-      }`}
-    >
-      {label}
-    </Link>
-  );
-
-  return (
-    <div className="min-h-screen bg-[#FBF7F0]">
-      <header className="bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
-        <div className="flex items-center gap-8">
-          <div className="text-xl font-bold text-[#2B3A67]">LoomSense AI</div>
-          <nav className="flex gap-2">
-            {navItem("/", "Dashboard")}
-            {navItem("/forecast", "Forecast")}
-            {navItem("/income", "Income Calendar")}
-          </nav>
-        </div>
-        <div className="flex items-center gap-4">
-          <span className="text-sm text-[#5B6B7A]">
-            {me?.weaver.name} · {me?.weaver.cluster}
-          </span>
-          <button
-            onClick={logout}
-            className="text-sm text-[#A63A50] font-medium hover:underline"
-          >
-            Sign out
-          </button>
-        </div>
-      </header>
-      <main className="max-w-6xl mx-auto px-6 py-8">{children}</main>
-    </div>
-  );
-}
-
-function ProtectedRoute({ children }: { children: React.ReactNode }) {
-  const { me, loading } = useAuth();
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center text-[#5B6B7A]">
-        Loading...
-      </div>
-    );
-  }
-  if (!me) return <Navigate to="/login" replace />;
-  return <AppLayout>{children}</AppLayout>;
-}
+// NOTE: the previous inline `AppLayout` (header/nav) and `ProtectedRoute`
+// components have been replaced by `layouts/ProtectedLayout.tsx` +
+// `components/layout/AppShell.tsx` (Phase 2 — enterprise sidebar/topbar
+// shell). Dashboard/Forecast/Income page components themselves are
+// untouched; only what wraps them changed.
 
 export default function App() {
   return (
     <BrowserRouter>
       <AuthProvider>
         <Routes>
+          <Route path="/" element={<LandingPage />} />
           <Route path="/login" element={<LoginPage />} />
-          <Route
-            path="/"
-            element={
-              <ProtectedRoute>
-                <Dashboard />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/forecast"
-            element={
-              <ProtectedRoute>
-                <ForecastPage />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/income"
-            element={
-              <ProtectedRoute>
-                <IncomePage />
-              </ProtectedRoute>
-            }
-          />
+
+          {/* Every route nested here is auth-guarded and wrapped in the
+              Phase 2 AppShell (sidebar + topbar + page transitions). */}
+          <Route element={<ProtectedLayout />}>
+            <Route path="/dashboard" element={<Dashboard />} />
+            <Route path="/forecast" element={<ForecastPage />} />
+            <Route path="/income" element={<IncomePage />} />
+
+            {/* Sidebar destinations whose full modules arrive in later
+                phases render the shared placeholder so every nav link
+                stays live and on-brand rather than 404-ing. */}
+            {[...NAV_ITEMS, ...UTILITY_NAV_ITEMS]
+              .filter((item) => item.comingSoon)
+              .map((item) => (
+                <Route
+                  key={item.path}
+                  path={item.path}
+                  element={
+                    <ComingSoonPage
+                      title={item.label}
+                      description={item.description ?? ""}
+                      icon={item.icon}
+                      phaseLabel={item.phaseLabel ?? "Coming soon"}
+                    />
+                  }
+                />
+              ))}
+          </Route>
+
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </AuthProvider>
