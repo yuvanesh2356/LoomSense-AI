@@ -13,6 +13,9 @@ import { APP_NAME, APP_TAGLINE } from "./design-system/brand";
 import ProtectedLayout from "./layouts/ProtectedLayout";
 import ComingSoonPage from "./pages/ComingSoonPage";
 import { NAV_ITEMS, UTILITY_NAV_ITEMS } from "./config/navigation";
+import FestivalPredictor from "./pages/FestivalPredictor";
+import Marketplace from "./pages/Marketplace";
+import GovernmentSchemes from "./pages/GovernmentSchemes";
 
 interface AuthContextValue {
   me: MeResponse | null;
@@ -145,6 +148,9 @@ export default function App() {
           <Route path="/login" element={<LoginPage />} />
 
           <Route element={<ProtectedLayout />}>
+            <Route path="/festival-predictor" element={<FestivalPredictor />} />
+            <Route path="/marketplace" element={<Marketplace />} />
+            <Route path="/government-schemes" element={<GovernmentSchemes />} />
             <Route path="/dashboard" element={<Dashboard />} />
             <Route path="/forecast" element={<ForecastPage />} />
             <Route path="/income" element={<IncomePage />} />

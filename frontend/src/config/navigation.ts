@@ -1,6 +1,7 @@
 import {
   LayoutDashboard, TrendingUp, Wallet, BarChart3, Sparkles,
-  ClipboardList, FileText, Landmark, Settings, HelpCircle, Bot, type LucideIcon,
+  ClipboardList, FileText, Landmark, Settings, HelpCircle, Bot,
+  PartyPopper, ShoppingBag, type LucideIcon,
 } from "lucide-react";
 
 export interface NavItem {
@@ -17,9 +18,13 @@ export const NAV_ITEMS: NavItem[] = [
   { label: "Demand Forecast", path: "/forecast", icon: TrendingUp },
   { label: "Income Prediction", path: "/income", icon: Wallet },
   { label: "Market Trends", path: "/market-trends", icon: BarChart3 },
-  // Phase 5+6: Production Planner and AI Assistant are now real pages.
   { label: "Production Planner", path: "/production-planner", icon: ClipboardList },
   { label: "AI Assistant", path: "/ai-assistant", icon: Bot },
+  // Phase 7: real pages now
+  { label: "Festival Predictor", path: "/festival-predictor", icon: PartyPopper },
+  { label: "Marketplace", path: "/marketplace", icon: ShoppingBag },
+  // Phase 8: real page now
+  { label: "Government Schemes", path: "/government-schemes", icon: Landmark },
   {
     label: "Smart Recommendations", path: "/recommendations", icon: Sparkles, comingSoon: true,
     description: "\u201cWhat should I weave next?\u201d recommendations tailored to region, raw material, budget, and time available.",
@@ -29,11 +34,6 @@ export const NAV_ITEMS: NavItem[] = [
     label: "Reports", path: "/reports", icon: FileText, comingSoon: true,
     description: "Exportable forecast accuracy, profit, and seasonality reports for your records or cooperative sharing.",
     phaseLabel: "Arriving in Phase 9/10 — Analytics Suite",
-  },
-  {
-    label: "Government Schemes", path: "/government-schemes", icon: Landmark, comingSoon: true,
-    description: "Profile-based matching against PM Vishwakarma, Mudra loans, state schemes, insurance, and training programs.",
-    phaseLabel: "Arriving in Phase 7+8 — Scheme Advisor",
   },
 ];
 

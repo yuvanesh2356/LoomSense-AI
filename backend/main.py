@@ -1,6 +1,7 @@
 """LoomSense AI — FastAPI backend. Single-file API layer."""
 import json
 from datetime import date, datetime, timedelta
+from typing import Optional
 
 import jwt
 from fastapi import FastAPI, Depends, HTTPException
@@ -12,10 +13,14 @@ from sqlalchemy.orm import Session
 from database import (
     Base, engine, get_db, seed, SessionLocal,
     Weaver, User, Forecast, Outcome, IncomeRecord, StateDemand, ChatMessage,
+    Festival, MarketplaceChannel, GovernmentScheme, WeaverSchemeMatch,
 )
 import ai_engine
 import planner_engine
 import assistant_engine
+import festival_engine
+import marketplace_engine
+import scheme_engine
 
 # --- App setup -----------------------------------------------------------
 Base.metadata.create_all(bind=engine)
@@ -64,6 +69,16 @@ class ChatRequest(BaseModel):
     weaver_id: int
     message: str
     language: str = "en"
+
+
+class SchemeMatchRequest(BaseModel):
+    weaver_id: Optional[int] = None
+    age: int
+    state: str
+    occupation: str
+    income: float
+    gender: str
+    shg: bool = False
 
 
 def envelope(data=None, error=None):
@@ -137,6 +152,10 @@ def get_market_trend(w: Weaver, db: Session) -> dict:
         "growth_pct": state_row.growth_pct if state_row else 0.0,
         "state_name": state_row.state_name if state_row else w.region,
     }
+
+
+def get_unit_price(w: Weaver) -> float:
+    return planner_engine.UNIT_PRICE.get(w.product_category, 1200)
 
 
 # --- Routes ------------------------------------------------------------------
@@ -308,7 +327,6 @@ def dashboard_summary(weaver_id: int, user: User = Depends(get_current_user), db
     })
 
 
-# --- Phase 5+6: Production Planner -------------------------------------------
 @app.get("/api/planner/{weaver_id}")
 def get_production_plan(weaver_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     w = get_weaver_or_404(weaver_id, db)
@@ -317,7 +335,6 @@ def get_production_plan(weaver_id: int, user: User = Depends(get_current_user), 
     return envelope(plan)
 
 
-# --- Phase 5+6: AI Weaver Consultant ------------------------------------------
 @app.post("/api/assistant/chat")
 def assistant_chat(req: ChatRequest, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     w = get_weaver_or_404(req.weaver_id, db)
@@ -346,6 +363,59 @@ def assistant_history(weaver_id: int, user: User = Depends(get_current_user), db
     return envelope([
         {"role": r.role, "message": r.message, "language": r.language, "created_at": r.created_at.isoformat()}
         for r in rows
+    ])
+
+
+# --- Phase 7: Festival Predictor ----------------------------------------------
+@app.get("/api/festivals/predict/{weaver_id}")
+def predict_festivals(weaver_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    w = get_weaver_or_404(weaver_id, db)
+    rows = db.query(Festival).filter(Festival.region == w.region).all()
+    predictions = festival_engine.predict_festivals(w, rows, get_unit_price(w))
+    return envelope(predictions)
+
+
+# --- Phase 7: Marketplace Recommendation Engine ------------------------------
+@app.get("/api/marketplace/recommendations/{weaver_id}")
+def marketplace_recommendations(weaver_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    w = get_weaver_or_404(weaver_id, db)
+    channels = db.query(MarketplaceChannel).all()
+    demand_index = ai_engine.get_today_demand_snapshot(w)["demand_index"]
+    ranked = marketplace_engine.rank_channels(channels, demand_index, get_unit_price(w))
+    return envelope(ranked)
+
+
+# --- Phase 8: Government Scheme Advisor --------------------------------------
+@app.post("/api/schemes/match")
+def match_schemes(req: SchemeMatchRequest, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    schemes = db.query(GovernmentScheme).all()
+    profile = {
+        "age": req.age, "state": req.state, "occupation": req.occupation,
+        "income": req.income, "gender": req.gender, "shg": req.shg,
+    }
+    matched = scheme_engine.match_schemes(schemes, profile)
+
+    if req.weaver_id:
+        for m in matched:
+            db.add(WeaverSchemeMatch(weaver_id=req.weaver_id, scheme_id=m["scheme_id"]))
+        db.commit()
+
+    return envelope(matched)
+
+
+@app.get("/api/schemes/history/{weaver_id}")
+def scheme_history(weaver_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    get_weaver_or_404(weaver_id, db)
+    rows = (
+        db.query(WeaverSchemeMatch, GovernmentScheme)
+        .join(GovernmentScheme, WeaverSchemeMatch.scheme_id == GovernmentScheme.id)
+        .filter(WeaverSchemeMatch.weaver_id == weaver_id)
+        .order_by(WeaverSchemeMatch.matched_at.desc())
+        .all()
+    )
+    return envelope([
+        {"scheme_name": scheme.name, "matched_at": match.matched_at.isoformat()}
+        for match, scheme in rows
     ])
 
 

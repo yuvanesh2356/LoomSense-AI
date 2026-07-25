@@ -226,3 +226,63 @@ export async function sendChatMessage(weaverId: number, message: string, languag
   });
   return res.data.data;
 }
+// --- Phase 7+8 types ---------------------------------------------------------
+export interface FestivalPrediction {
+  festival_name: string;
+  month: number;
+  target_date: string;
+  days_until: number;
+  expected_demand_increase_pct: number;
+  recommended_production: number;
+  income_estimation: number;
+  notes: string | null;
+}
+
+export interface MarketplaceChannelRecommendation {
+  channel_name: string;
+  channel_type: string;
+  score: number;
+  price_band_low: number;
+  price_band_high: number;
+  competition_level: "Low" | "Medium" | "High";
+  reasoning: string;
+  info_url: string | null;
+}
+
+export interface SchemeMatch {
+  scheme_id: number;
+  scheme_name: string;
+  category: string;
+  description: string;
+  benefits: string;
+  eligibility_notes: string;
+  apply_link: string | null;
+}
+
+export interface SchemeMatchRequest {
+  weaver_id?: number;
+  age: number;
+  state: string;
+  occupation: string;
+  income: number;
+  gender: string;
+  shg: boolean;
+}
+
+// --- Phase 7+8 API calls ------------------------------------------------------
+export async function getFestivalPredictions(weaverId: number) {
+  const res = await client.get<Envelope<FestivalPrediction[]>>(`/festivals/predict/${weaverId}`);
+  return res.data.data;
+}
+
+export async function getMarketplaceRecommendations(weaverId: number) {
+  const res = await client.get<Envelope<MarketplaceChannelRecommendation[]>>(
+    `/marketplace/recommendations/${weaverId}`
+  );
+  return res.data.data;
+}
+
+export async function matchGovernmentSchemes(req: SchemeMatchRequest) {
+  const res = await client.post<Envelope<SchemeMatch[]>>("/schemes/match", req);
+  return res.data.data;
+}
