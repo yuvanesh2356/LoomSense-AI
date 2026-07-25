@@ -1,4 +1,5 @@
 """SQLite database setup, models, and demo seed data for LoomSense AI."""
+import json
 from datetime import date, datetime
 from sqlalchemy import (
     create_engine, Column, Integer, String, Float, Date, DateTime,
@@ -75,6 +76,20 @@ class IncomeRecord(Base):
     weaver = relationship("Weaver", back_populates="income_records")
 
 
+class StateDemand(Base):
+    """Phase 3+4: per-state demand summary powering the Dashboard's market
+    trend card and the Demand Heatmap module."""
+    __tablename__ = "states_demand"
+    id = Column(Integer, primary_key=True, index=True)
+    state_code = Column(String, unique=True, index=True, nullable=False)
+    state_name = Column(String, nullable=False)
+    demand_index = Column(Integer, nullable=False)          # 0-100
+    growth_pct = Column(Float, nullable=False)               # e.g. 12.5
+    top_products_json = Column(String, nullable=False)       # JSON list[str]
+    festivals_json = Column(String, nullable=False)           # JSON list[str]
+    price_trend = Column(String, nullable=False)              # rising | stable | falling
+
+
 def get_db():
     db = SessionLocal()
     try:
@@ -120,4 +135,47 @@ def seed(db):
             is_past = i < 6
             actual = round(projected * (0.85 + 0.3 * ((w.id + i) % 3) / 2), 0) if is_past else None
             db.add(IncomeRecord(weaver_id=w.id, month_label=m, projected=projected, actual=actual))
+    db.commit()
+
+    # --- Phase 3+4: seed state-level demand summary --------------------------
+    states_demand = [
+        {"state_code": "TG", "state_name": "Telangana", "demand_index": 78, "growth_pct": 14.2,
+         "top_products": ["Pochampally Ikkat Saree", "Cotton Dupatta", "Gadwal Saree"],
+         "festivals": ["Ganesh Chaturthi", "Bathukamma", "Diwali"], "price_trend": "rising"},
+        {"state_code": "TN", "state_name": "Tamil Nadu", "demand_index": 82, "growth_pct": 18.5,
+         "top_products": ["Kanjeevaram Silk Saree", "Temple Border Saree", "Silk Stole"],
+         "festivals": ["Pongal", "Navratri (Golu)", "Aadi Sale Season"], "price_trend": "rising"},
+        {"state_code": "MP", "state_name": "Madhya Pradesh", "demand_index": 65, "growth_pct": 9.1,
+         "top_products": ["Chanderi Silk-Cotton Saree", "Maheshwari Saree", "Dupatta Set"],
+         "festivals": ["Navratri", "Diwali"], "price_trend": "stable"},
+        {"state_code": "WB", "state_name": "West Bengal", "demand_index": 71, "growth_pct": 11.4,
+         "top_products": ["Tant Cotton Saree", "Baluchari Saree", "Jamdani Saree"],
+         "festivals": ["Durga Puja", "Poila Boishakh"], "price_trend": "rising"},
+        {"state_code": "AS", "state_name": "Assam", "demand_index": 58, "growth_pct": 7.6,
+         "top_products": ["Muga Silk Saree", "Gamosa", "Eri Silk Stole"],
+         "festivals": ["Bihu", "Durga Puja"], "price_trend": "stable"},
+        {"state_code": "AP", "state_name": "Andhra Pradesh", "demand_index": 60, "growth_pct": 8.3,
+         "top_products": ["Mangalagiri Cotton Saree", "Uppada Silk Saree"],
+         "festivals": ["Ugadi", "Sankranti"], "price_trend": "stable"},
+        {"state_code": "KA", "state_name": "Karnataka", "demand_index": 55, "growth_pct": 6.0,
+         "top_products": ["Ilkal Saree", "Mysore Silk Saree"],
+         "festivals": ["Dasara", "Ugadi"], "price_trend": "falling"},
+        {"state_code": "OD", "state_name": "Odisha", "demand_index": 62, "growth_pct": 10.2,
+         "top_products": ["Sambalpuri Ikkat Saree", "Bomkai Saree"],
+         "festivals": ["Rath Yatra", "Nuakhai"], "price_trend": "rising"},
+        {"state_code": "UP", "state_name": "Uttar Pradesh", "demand_index": 48, "growth_pct": 4.5,
+         "top_products": ["Banarasi Silk Saree", "Brocade Dupatta"],
+         "festivals": ["Diwali", "Wedding Season"], "price_trend": "stable"},
+        {"state_code": "GJ", "state_name": "Gujarat", "demand_index": 52, "growth_pct": 5.8,
+         "top_products": ["Patola Saree", "Bandhani Dupatta"],
+         "festivals": ["Navratri", "Diwali"], "price_trend": "stable"},
+    ]
+    for s in states_demand:
+        db.add(StateDemand(
+            state_code=s["state_code"], state_name=s["state_name"],
+            demand_index=s["demand_index"], growth_pct=s["growth_pct"],
+            top_products_json=json.dumps(s["top_products"]),
+            festivals_json=json.dumps(s["festivals"]),
+            price_trend=s["price_trend"],
+        ))
     db.commit()

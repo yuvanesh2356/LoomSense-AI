@@ -4,6 +4,7 @@ import { login as apiLogin, getMe, MeResponse } from "./api";
 import Dashboard from "./pages/Dashboard";
 import ForecastPage from "./pages/Forecast";
 import IncomePage from "./pages/Income";
+import DemandHeatmap from "./pages/DemandHeatmap";
 import { Button, Card } from "./components/ui";
 import LandingPage from "./landing/LandingPage";
 import { APP_NAME, APP_TAGLINE } from "./design-system/brand";
@@ -135,12 +136,6 @@ function LoginPage() {
   );
 }
 
-// NOTE: the previous inline `AppLayout` (header/nav) and `ProtectedRoute`
-// components have been replaced by `layouts/ProtectedLayout.tsx` +
-// `components/layout/AppShell.tsx` (Phase 2 — enterprise sidebar/topbar
-// shell). Dashboard/Forecast/Income page components themselves are
-// untouched; only what wraps them changed.
-
 export default function App() {
   return (
     <BrowserRouter>
@@ -155,6 +150,8 @@ export default function App() {
             <Route path="/dashboard" element={<Dashboard />} />
             <Route path="/forecast" element={<ForecastPage />} />
             <Route path="/income" element={<IncomePage />} />
+            {/* Phase 3+4: Demand Heatmap module */}
+            <Route path="/market-trends" element={<DemandHeatmap />} />
 
             {/* Sidebar destinations whose full modules arrive in later
                 phases render the shared placeholder so every nav link

@@ -1,6 +1,6 @@
 import axios from "axios";
 
-const API_BASE = "https://loomsense-ai.onrender.com/api";
+const API_BASE = "http://localhost:8000/api"; // keep your deployed URL here if different
 
 export const client = axios.create({ baseURL: API_BASE });
 
@@ -79,6 +79,30 @@ export interface StabilityScore {
   };
 }
 
+// --- Phase 3+4 types ---------------------------------------------------------
+export interface HeatmapStateSummary {
+  state_code: string;
+  state_name: string;
+  demand_index: number;
+  growth_pct: number;
+}
+
+export interface HeatmapStateDetail extends HeatmapStateSummary {
+  top_products: string[];
+  festivals: string[];
+  price_trend: "rising" | "stable" | "falling";
+}
+
+export interface DashboardSummary {
+  today_demand: { demand_index: number; label: string; driver: string };
+  estimated_income: number | null;
+  forecast_accuracy: { accuracy_pct: number; sample_size: number };
+  market_trend: { growth_pct: number; state_name: string };
+  recommended_product: string;
+  inventory_status: string;
+  production_capacity: number;
+}
+
 interface Envelope<T> {
   success: boolean;
   data: T;
@@ -145,5 +169,21 @@ export async function logOutcome(
     "/outcomes",
     { forecast_id: forecastId, sold_quantity: soldQuantity, actual_price: actualPrice, accepted }
   );
+  return res.data.data;
+}
+
+// --- Phase 3+4 API calls ------------------------------------------------------
+export async function getHeatmapStates() {
+  const res = await client.get<Envelope<HeatmapStateSummary[]>>("/heatmap/states");
+  return res.data.data;
+}
+
+export async function getHeatmapStateDetail(stateCode: string) {
+  const res = await client.get<Envelope<HeatmapStateDetail>>(`/heatmap/states/${stateCode}`);
+  return res.data.data;
+}
+
+export async function getDashboardSummary(weaverId: number) {
+  const res = await client.get<Envelope<DashboardSummary>>(`/dashboard/summary/${weaverId}`);
   return res.data.data;
 }

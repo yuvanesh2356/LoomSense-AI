@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 
 from database import (
     Base, engine, get_db, seed, SessionLocal,
-    Weaver, User, Forecast, Outcome, IncomeRecord,
+    Weaver, User, Forecast, Outcome, IncomeRecord, StateDemand,
 )
 import ai_engine
 
@@ -224,6 +224,102 @@ def log_outcome(req: OutcomeRequest, user: User = Depends(get_current_user), db:
     db.commit()
     db.refresh(o)
     return envelope({"outcome_id": o.id, "logged": True})
+
+
+# --- Phase 3+4: Demand Heatmap endpoints -------------------------------------
+@app.get("/api/heatmap/states")
+def heatmap_states(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    rows = db.query(StateDemand).order_by(StateDemand.state_name.asc()).all()
+    return envelope([
+        {
+            "state_code": r.state_code,
+            "state_name": r.state_name,
+            "demand_index": r.demand_index,
+            "growth_pct": r.growth_pct,
+        }
+        for r in rows
+    ])
+
+
+@app.get("/api/heatmap/states/{state_code}")
+def heatmap_state_detail(state_code: str, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    r = db.query(StateDemand).filter(StateDemand.state_code == state_code.upper()).first()
+    if not r:
+        raise HTTPException(status_code=404, detail="State not found")
+    return envelope({
+        "state_code": r.state_code,
+        "state_name": r.state_name,
+        "demand_index": r.demand_index,
+        "growth_pct": r.growth_pct,
+        "top_products": json.loads(r.top_products_json),
+        "festivals": json.loads(r.festivals_json),
+        "price_trend": r.price_trend,
+    })
+
+
+# --- Phase 3+4: Dashboard summary endpoint -----------------------------------
+@app.get("/api/dashboard/summary/{weaver_id}")
+def dashboard_summary(weaver_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    w = get_weaver_or_404(weaver_id, db)
+
+    existing = (
+        db.query(Forecast)
+        .filter(Forecast.weaver_id == weaver_id)
+        .order_by(Forecast.created_at.desc())
+        .first()
+    )
+    if existing and existing.target_date >= date.today():
+        f = existing
+    else:
+        result = ai_engine.generate_forecast(w)
+        f = Forecast(
+            weaver_id=w.id, product=result["product"], quantity=result["quantity"],
+            confidence=result["confidence"], target_date=result["target_date"],
+            reason=result["reason"], factors_json=json.dumps(result["factors"]),
+        )
+        db.add(f)
+        db.commit()
+        db.refresh(f)
+
+    today_demand = ai_engine.get_today_demand_snapshot(w)
+
+    outcomes = (
+        db.query(Outcome)
+        .join(Forecast, Outcome.forecast_id == Forecast.id)
+        .filter(Forecast.weaver_id == weaver_id)
+        .all()
+    )
+    accuracy = ai_engine.compute_forecast_accuracy(outcomes)
+
+    current_month_label = date.today().strftime("%Y-%m")
+    income_row = (
+        db.query(IncomeRecord)
+        .filter(IncomeRecord.weaver_id == weaver_id, IncomeRecord.month_label == current_month_label)
+        .first()
+    )
+    estimated_income = income_row.projected if income_row else None
+
+    state_code = ai_engine.STATE_CODE_BY_REGION.get(w.region)
+    state_row = (
+        db.query(StateDemand).filter(StateDemand.state_code == state_code).first()
+        if state_code else None
+    )
+    market_trend = {
+        "growth_pct": state_row.growth_pct if state_row else 0.0,
+        "state_name": state_row.state_name if state_row else w.region,
+    }
+
+    inventory_status = "Tight" if f.quantity > w.weekly_capacity * 1.2 else "Adequate"
+
+    return envelope({
+        "today_demand": today_demand,
+        "estimated_income": estimated_income,
+        "forecast_accuracy": accuracy,
+        "market_trend": market_trend,
+        "recommended_product": f.product,
+        "inventory_status": inventory_status,
+        "production_capacity": w.weekly_capacity,
+    })
 
 
 @app.get("/api/health")
