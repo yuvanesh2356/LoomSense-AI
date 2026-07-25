@@ -1,13 +1,12 @@
 import {
   LayoutDashboard, TrendingUp, Wallet, BarChart3, Sparkles,
-  ClipboardList, FileText, Landmark, Settings, HelpCircle, type LucideIcon,
+  ClipboardList, FileText, Landmark, Settings, HelpCircle, Bot, type LucideIcon,
 } from "lucide-react";
 
 export interface NavItem {
   label: string;
   path: string;
   icon: LucideIcon;
-  /** Pages not yet built in this phase render the shared ComingSoonPage. */
   comingSoon?: boolean;
   description?: string;
   phaseLabel?: string;
@@ -17,17 +16,14 @@ export const NAV_ITEMS: NavItem[] = [
   { label: "Dashboard", path: "/dashboard", icon: LayoutDashboard },
   { label: "Demand Forecast", path: "/forecast", icon: TrendingUp },
   { label: "Income Prediction", path: "/income", icon: Wallet },
-  // Phase 3+4: Market Trends now points to the real Demand Heatmap page.
   { label: "Market Trends", path: "/market-trends", icon: BarChart3 },
+  // Phase 5+6: Production Planner and AI Assistant are now real pages.
+  { label: "Production Planner", path: "/production-planner", icon: ClipboardList },
+  { label: "AI Assistant", path: "/ai-assistant", icon: Bot },
   {
     label: "Smart Recommendations", path: "/recommendations", icon: Sparkles, comingSoon: true,
     description: "\u201cWhat should I weave next?\u201d recommendations tailored to region, raw material, budget, and time available.",
     phaseLabel: "Arriving in Phase 9/10 — AI Recommender",
-  },
-  {
-    label: "Production Planner", path: "/production-planner", icon: ClipboardList, comingSoon: true,
-    description: "A visual, step-by-step plan from current inventory through forecast, raw material, labour, and expected profit.",
-    phaseLabel: "Arriving in Phase 5+6 — Production Planner",
   },
   {
     label: "Reports", path: "/reports", icon: FileText, comingSoon: true,
@@ -41,7 +37,6 @@ export const NAV_ITEMS: NavItem[] = [
   },
 ];
 
-/** Shown separately at the bottom of the sidebar, same visual treatment. */
 export const UTILITY_NAV_ITEMS: NavItem[] = [
   {
     label: "Settings", path: "/settings", icon: Settings, comingSoon: true,

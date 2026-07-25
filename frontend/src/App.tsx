@@ -5,6 +5,8 @@ import Dashboard from "./pages/Dashboard";
 import ForecastPage from "./pages/Forecast";
 import IncomePage from "./pages/Income";
 import DemandHeatmap from "./pages/DemandHeatmap";
+import ProductionPlanner from "./pages/ProductionPlanner";
+import AIAssistant from "./pages/AIAssistant";
 import { Button, Card } from "./components/ui";
 import LandingPage from "./landing/LandingPage";
 import { APP_NAME, APP_TAGLINE } from "./design-system/brand";
@@ -12,7 +14,6 @@ import ProtectedLayout from "./layouts/ProtectedLayout";
 import ComingSoonPage from "./pages/ComingSoonPage";
 import { NAV_ITEMS, UTILITY_NAV_ITEMS } from "./config/navigation";
 
-// --- Auth context ------------------------------------------------------------
 interface AuthContextValue {
   me: MeResponse | null;
   loading: boolean;
@@ -67,7 +68,6 @@ function AuthProvider({ children }: { children: React.ReactNode }) {
   );
 }
 
-// --- Login page (merged into App.tsx) ----------------------------------------
 function LoginPage() {
   const [username, setUsername] = useState("lakshmi");
   const [password, setPassword] = useState("demo123");
@@ -144,18 +144,15 @@ export default function App() {
           <Route path="/" element={<LandingPage />} />
           <Route path="/login" element={<LoginPage />} />
 
-          {/* Every route nested here is auth-guarded and wrapped in the
-              Phase 2 AppShell (sidebar + topbar + page transitions). */}
           <Route element={<ProtectedLayout />}>
             <Route path="/dashboard" element={<Dashboard />} />
             <Route path="/forecast" element={<ForecastPage />} />
             <Route path="/income" element={<IncomePage />} />
-            {/* Phase 3+4: Demand Heatmap module */}
             <Route path="/market-trends" element={<DemandHeatmap />} />
+            {/* Phase 5+6 */}
+            <Route path="/production-planner" element={<ProductionPlanner />} />
+            <Route path="/ai-assistant" element={<AIAssistant />} />
 
-            {/* Sidebar destinations whose full modules arrive in later
-                phases render the shared placeholder so every nav link
-                stays live and on-brand rather than 404-ing. */}
             {[...NAV_ITEMS, ...UTILITY_NAV_ITEMS]
               .filter((item) => item.comingSoon)
               .map((item) => (

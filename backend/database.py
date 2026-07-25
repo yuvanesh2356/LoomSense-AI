@@ -31,7 +31,7 @@ class User(Base):
     __tablename__ = "users"
     id = Column(Integer, primary_key=True, index=True)
     username = Column(String, unique=True, index=True, nullable=False)
-    password = Column(String, nullable=False)  # plaintext for demo simplicity
+    password = Column(String, nullable=False)
     weaver_id = Column(Integer, ForeignKey("weavers.id"))
 
     weaver = relationship("Weaver", back_populates="users")
@@ -46,7 +46,7 @@ class Forecast(Base):
     confidence = Column(Float, nullable=False)
     target_date = Column(Date, nullable=False)
     reason = Column(String, nullable=False)
-    factors_json = Column(String, nullable=False)  # JSON-serialized factor list
+    factors_json = Column(String, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     weaver = relationship("Weaver", back_populates="forecasts")
@@ -69,7 +69,7 @@ class IncomeRecord(Base):
     __tablename__ = "income_records"
     id = Column(Integer, primary_key=True, index=True)
     weaver_id = Column(Integer, ForeignKey("weavers.id"))
-    month_label = Column(String, nullable=False)   # e.g. "2026-08"
+    month_label = Column(String, nullable=False)
     projected = Column(Float, nullable=False)
     actual = Column(Float, nullable=True)
 
@@ -77,17 +77,26 @@ class IncomeRecord(Base):
 
 
 class StateDemand(Base):
-    """Phase 3+4: per-state demand summary powering the Dashboard's market
-    trend card and the Demand Heatmap module."""
     __tablename__ = "states_demand"
     id = Column(Integer, primary_key=True, index=True)
     state_code = Column(String, unique=True, index=True, nullable=False)
     state_name = Column(String, nullable=False)
-    demand_index = Column(Integer, nullable=False)          # 0-100
-    growth_pct = Column(Float, nullable=False)               # e.g. 12.5
-    top_products_json = Column(String, nullable=False)       # JSON list[str]
-    festivals_json = Column(String, nullable=False)           # JSON list[str]
-    price_trend = Column(String, nullable=False)              # rising | stable | falling
+    demand_index = Column(Integer, nullable=False)
+    growth_pct = Column(Float, nullable=False)
+    top_products_json = Column(String, nullable=False)
+    festivals_json = Column(String, nullable=False)
+    price_trend = Column(String, nullable=False)
+
+
+class ChatMessage(Base):
+    """Phase 5+6: AI Weaver Consultant conversation history."""
+    __tablename__ = "chat_logs"
+    id = Column(Integer, primary_key=True, index=True)
+    weaver_id = Column(Integer, ForeignKey("weavers.id"))
+    role = Column(String, nullable=False)          # "user" | "assistant"
+    message = Column(String, nullable=False)
+    language = Column(String, default="en")
+    created_at = Column(DateTime, default=datetime.utcnow)
 
 
 def get_db():
@@ -122,7 +131,6 @@ def seed(db):
     db.add_all(users)
     db.commit()
 
-    # Seed 12 months of income history (past 6 actual, future 6 projected-only)
     months = ["2026-02", "2026-03", "2026-04", "2026-05", "2026-06", "2026-07",
               "2026-08", "2026-09", "2026-10", "2026-11", "2026-12", "2027-01"]
     base_by_weaver = {weavers[0].id: 9000, weavers[1].id: 7000, weavers[2].id: 15000}
@@ -137,7 +145,6 @@ def seed(db):
             db.add(IncomeRecord(weaver_id=w.id, month_label=m, projected=projected, actual=actual))
     db.commit()
 
-    # --- Phase 3+4: seed state-level demand summary --------------------------
     states_demand = [
         {"state_code": "TG", "state_name": "Telangana", "demand_index": 78, "growth_pct": 14.2,
          "top_products": ["Pochampally Ikkat Saree", "Cotton Dupatta", "Gadwal Saree"],

@@ -11,9 +11,11 @@ from sqlalchemy.orm import Session
 
 from database import (
     Base, engine, get_db, seed, SessionLocal,
-    Weaver, User, Forecast, Outcome, IncomeRecord, StateDemand,
+    Weaver, User, Forecast, Outcome, IncomeRecord, StateDemand, ChatMessage,
 )
 import ai_engine
+import planner_engine
+import assistant_engine
 
 # --- App setup -----------------------------------------------------------
 Base.metadata.create_all(bind=engine)
@@ -58,6 +60,12 @@ class OutcomeRequest(BaseModel):
     accepted: bool = True
 
 
+class ChatRequest(BaseModel):
+    weaver_id: int
+    message: str
+    language: str = "en"
+
+
 def envelope(data=None, error=None):
     return {
         "success": error is None,
@@ -98,6 +106,39 @@ def get_weaver_or_404(weaver_id: int, db: Session) -> Weaver:
     return w
 
 
+def get_or_create_forecast(w: Weaver, db: Session) -> Forecast:
+    existing = (
+        db.query(Forecast)
+        .filter(Forecast.weaver_id == w.id)
+        .order_by(Forecast.created_at.desc())
+        .first()
+    )
+    if existing and existing.target_date >= date.today():
+        return existing
+    result = ai_engine.generate_forecast(w)
+    f = Forecast(
+        weaver_id=w.id, product=result["product"], quantity=result["quantity"],
+        confidence=result["confidence"], target_date=result["target_date"],
+        reason=result["reason"], factors_json=json.dumps(result["factors"]),
+    )
+    db.add(f)
+    db.commit()
+    db.refresh(f)
+    return f
+
+
+def get_market_trend(w: Weaver, db: Session) -> dict:
+    state_code = ai_engine.STATE_CODE_BY_REGION.get(w.region)
+    state_row = (
+        db.query(StateDemand).filter(StateDemand.state_code == state_code).first()
+        if state_code else None
+    )
+    return {
+        "growth_pct": state_row.growth_pct if state_row else 0.0,
+        "state_name": state_row.state_name if state_row else w.region,
+    }
+
+
 # --- Routes ------------------------------------------------------------------
 @app.post("/api/login")
 def login(req: LoginRequest, db: Session = Depends(get_db)):
@@ -130,26 +171,7 @@ def me(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
 @app.get("/api/forecast/{weaver_id}")
 def get_forecast(weaver_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     w = get_weaver_or_404(weaver_id, db)
-
-    existing = (
-        db.query(Forecast)
-        .filter(Forecast.weaver_id == weaver_id)
-        .order_by(Forecast.created_at.desc())
-        .first()
-    )
-    if existing and existing.target_date >= date.today():
-        f = existing
-    else:
-        result = ai_engine.generate_forecast(w)
-        f = Forecast(
-            weaver_id=w.id, product=result["product"], quantity=result["quantity"],
-            confidence=result["confidence"], target_date=result["target_date"],
-            reason=result["reason"], factors_json=json.dumps(result["factors"]),
-        )
-        db.add(f)
-        db.commit()
-        db.refresh(f)
-
+    f = get_or_create_forecast(w, db)
     return envelope({
         "forecast_id": f.id,
         "product": f.product,
@@ -226,17 +248,12 @@ def log_outcome(req: OutcomeRequest, user: User = Depends(get_current_user), db:
     return envelope({"outcome_id": o.id, "logged": True})
 
 
-# --- Phase 3+4: Demand Heatmap endpoints -------------------------------------
 @app.get("/api/heatmap/states")
 def heatmap_states(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     rows = db.query(StateDemand).order_by(StateDemand.state_name.asc()).all()
     return envelope([
-        {
-            "state_code": r.state_code,
-            "state_name": r.state_name,
-            "demand_index": r.demand_index,
-            "growth_pct": r.growth_pct,
-        }
+        {"state_code": r.state_code, "state_name": r.state_name,
+         "demand_index": r.demand_index, "growth_pct": r.growth_pct}
         for r in rows
     ])
 
@@ -247,40 +264,18 @@ def heatmap_state_detail(state_code: str, user: User = Depends(get_current_user)
     if not r:
         raise HTTPException(status_code=404, detail="State not found")
     return envelope({
-        "state_code": r.state_code,
-        "state_name": r.state_name,
-        "demand_index": r.demand_index,
-        "growth_pct": r.growth_pct,
+        "state_code": r.state_code, "state_name": r.state_name,
+        "demand_index": r.demand_index, "growth_pct": r.growth_pct,
         "top_products": json.loads(r.top_products_json),
         "festivals": json.loads(r.festivals_json),
         "price_trend": r.price_trend,
     })
 
 
-# --- Phase 3+4: Dashboard summary endpoint -----------------------------------
 @app.get("/api/dashboard/summary/{weaver_id}")
 def dashboard_summary(weaver_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     w = get_weaver_or_404(weaver_id, db)
-
-    existing = (
-        db.query(Forecast)
-        .filter(Forecast.weaver_id == weaver_id)
-        .order_by(Forecast.created_at.desc())
-        .first()
-    )
-    if existing and existing.target_date >= date.today():
-        f = existing
-    else:
-        result = ai_engine.generate_forecast(w)
-        f = Forecast(
-            weaver_id=w.id, product=result["product"], quantity=result["quantity"],
-            confidence=result["confidence"], target_date=result["target_date"],
-            reason=result["reason"], factors_json=json.dumps(result["factors"]),
-        )
-        db.add(f)
-        db.commit()
-        db.refresh(f)
-
+    f = get_or_create_forecast(w, db)
     today_demand = ai_engine.get_today_demand_snapshot(w)
 
     outcomes = (
@@ -299,16 +294,7 @@ def dashboard_summary(weaver_id: int, user: User = Depends(get_current_user), db
     )
     estimated_income = income_row.projected if income_row else None
 
-    state_code = ai_engine.STATE_CODE_BY_REGION.get(w.region)
-    state_row = (
-        db.query(StateDemand).filter(StateDemand.state_code == state_code).first()
-        if state_code else None
-    )
-    market_trend = {
-        "growth_pct": state_row.growth_pct if state_row else 0.0,
-        "state_name": state_row.state_name if state_row else w.region,
-    }
-
+    market_trend = get_market_trend(w, db)
     inventory_status = "Tight" if f.quantity > w.weekly_capacity * 1.2 else "Adequate"
 
     return envelope({
@@ -320,6 +306,47 @@ def dashboard_summary(weaver_id: int, user: User = Depends(get_current_user), db
         "inventory_status": inventory_status,
         "production_capacity": w.weekly_capacity,
     })
+
+
+# --- Phase 5+6: Production Planner -------------------------------------------
+@app.get("/api/planner/{weaver_id}")
+def get_production_plan(weaver_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    w = get_weaver_or_404(weaver_id, db)
+    f = get_or_create_forecast(w, db)
+    plan = planner_engine.generate_production_plan(w, f)
+    return envelope(plan)
+
+
+# --- Phase 5+6: AI Weaver Consultant ------------------------------------------
+@app.post("/api/assistant/chat")
+def assistant_chat(req: ChatRequest, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    w = get_weaver_or_404(req.weaver_id, db)
+    f = get_or_create_forecast(w, db)
+    forecast_result = {"product": f.product, "quantity": f.quantity}
+    market_trend = get_market_trend(w, db)
+
+    result = assistant_engine.generate_reply(req.message, w, forecast_result, market_trend, req.language)
+
+    db.add(ChatMessage(weaver_id=w.id, role="user", message=req.message, language=req.language))
+    db.add(ChatMessage(weaver_id=w.id, role="assistant", message=result["reply_text"], language=req.language))
+    db.commit()
+
+    return envelope({"reply_text": result["reply_text"], "intent": result["intent"]})
+
+
+@app.get("/api/assistant/history/{weaver_id}")
+def assistant_history(weaver_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    get_weaver_or_404(weaver_id, db)
+    rows = (
+        db.query(ChatMessage)
+        .filter(ChatMessage.weaver_id == weaver_id)
+        .order_by(ChatMessage.created_at.asc())
+        .all()
+    )
+    return envelope([
+        {"role": r.role, "message": r.message, "language": r.language, "created_at": r.created_at.isoformat()}
+        for r in rows
+    ])
 
 
 @app.get("/api/health")

@@ -79,7 +79,6 @@ export interface StabilityScore {
   };
 }
 
-// --- Phase 3+4 types ---------------------------------------------------------
 export interface HeatmapStateSummary {
   state_code: string;
   state_name: string;
@@ -101,6 +100,29 @@ export interface DashboardSummary {
   recommended_product: string;
   inventory_status: string;
   production_capacity: number;
+}
+
+// --- Phase 5+6 types ---------------------------------------------------------
+export interface ProductionPlanStep {
+  step: number;
+  title: string;
+  value: string;
+  detail: string;
+}
+export interface ProductionPlan {
+  steps: ProductionPlanStep[];
+  timeline_days: number;
+  summary: string;
+}
+export interface ChatMessage {
+  role: "user" | "assistant";
+  message: string;
+  language: string;
+  created_at: string;
+}
+export interface ChatReply {
+  reply_text: string;
+  intent: string;
 }
 
 interface Envelope<T> {
@@ -172,7 +194,6 @@ export async function logOutcome(
   return res.data.data;
 }
 
-// --- Phase 3+4 API calls ------------------------------------------------------
 export async function getHeatmapStates() {
   const res = await client.get<Envelope<HeatmapStateSummary[]>>("/heatmap/states");
   return res.data.data;
@@ -185,5 +206,23 @@ export async function getHeatmapStateDetail(stateCode: string) {
 
 export async function getDashboardSummary(weaverId: number) {
   const res = await client.get<Envelope<DashboardSummary>>(`/dashboard/summary/${weaverId}`);
+  return res.data.data;
+}
+
+// --- Phase 5+6 API calls ------------------------------------------------------
+export async function getProductionPlan(weaverId: number) {
+  const res = await client.get<Envelope<ProductionPlan>>(`/planner/${weaverId}`);
+  return res.data.data;
+}
+
+export async function getChatHistory(weaverId: number) {
+  const res = await client.get<Envelope<ChatMessage[]>>(`/assistant/history/${weaverId}`);
+  return res.data.data;
+}
+
+export async function sendChatMessage(weaverId: number, message: string, language: string) {
+  const res = await client.post<Envelope<ChatReply>>("/assistant/chat", {
+    weaver_id: weaverId, message, language,
+  });
   return res.data.data;
 }
