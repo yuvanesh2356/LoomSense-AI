@@ -146,6 +146,100 @@ class WeaverSchemeMatch(Base):
     matched_at = Column(DateTime, default=datetime.utcnow)
 
 
+class InventoryItem(Base):
+    """Phase 9: Smart Inventory Management."""
+    __tablename__ = "inventory_items"
+    id = Column(Integer, primary_key=True, index=True)
+    weaver_id = Column(Integer, ForeignKey("weavers.id"))
+    item_type = Column(String, nullable=False)   # raw_material | finished_good
+    name = Column(String, nullable=False)
+    unit = Column(String, nullable=False)          # kg | units
+    available_stock = Column(Float, nullable=False)
+    predicted_stock = Column(Float, nullable=False)
+    required_stock = Column(Float, nullable=False)
+    low_stock_threshold = Column(Float, nullable=False)
+    expiry_date = Column(Date, nullable=True)
+    storage_location = Column(String, nullable=True)
+
+
+class Alert(Base):
+    """Phase 9: Smart Alerts — populated lazily on-read (see
+    alerts_engine.generate_alerts), not via seed(). Deduped per weaver via
+    source_key so repeated requests never create duplicates."""
+    __tablename__ = "alerts"
+    id = Column(Integer, primary_key=True, index=True)
+    weaver_id = Column(Integer, ForeignKey("weavers.id"))
+    alert_type = Column(String, nullable=False)
+    severity = Column(String, nullable=False)   # info | warning | critical
+    title = Column(String, nullable=False)
+    message = Column(String, nullable=False)
+    source_key = Column(String, nullable=False, index=True)
+    read = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class LearningResource(Base):
+    """Phase 9: Learning Hub."""
+    __tablename__ = "learning_resources"
+    id = Column(Integer, primary_key=True, index=True)
+    title = Column(String, nullable=False)
+    resource_type = Column(String, nullable=False)   # video | pdf | article
+    category = Column(String, nullable=False)
+    description = Column(String, nullable=False)
+    url = Column(String, nullable=True)
+    duration_minutes = Column(Integer, nullable=True)
+    language = Column(String, default="en")
+
+
+class CommunityProfile(Base):
+    """Phase 9: Community Hub."""
+    __tablename__ = "community_profiles"
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, nullable=False)
+    profile_type = Column(String, nullable=False)   # weaver | shg | mentor | expert
+    region = Column(String, nullable=False)
+    cluster = Column(String, nullable=False)
+    bio = Column(String, nullable=False)
+    contact_info = Column(String, nullable=True)
+    weaver_id = Column(Integer, ForeignKey("weavers.id"), nullable=True)
+
+
+class CommunityEvent(Base):
+    __tablename__ = "community_events"
+    id = Column(Integer, primary_key=True, index=True)
+    title = Column(String, nullable=False)
+    description = Column(String, nullable=False)
+    event_date = Column(String, nullable=False)   # simple label, e.g. "2026-09-14"
+    region = Column(String, nullable=False)
+    event_type = Column(String, nullable=False)
+
+
+class FabricRecognitionLog(Base):
+    """Phase 10: Fabric Image Recognition — audit log of uploads/results."""
+    __tablename__ = "fabric_recognition_logs"
+    id = Column(Integer, primary_key=True, index=True)
+    weaver_id = Column(Integer, ForeignKey("weavers.id"))
+    uploaded_filename = Column(String, nullable=False)
+    avg_color_hex = Column(String, nullable=False)
+    detected_pattern = Column(String, nullable=False)
+    predicted_category = Column(String, nullable=False)
+    estimated_price = Column(Float, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class WeaveRecommendationLog(Base):
+    """Phase 10: 'What Should I Weave?' — audit log of recommendation runs."""
+    __tablename__ = "weave_recommendation_logs"
+    id = Column(Integer, primary_key=True, index=True)
+    weaver_id = Column(Integer, ForeignKey("weavers.id"), nullable=True)
+    region = Column(String, nullable=False)
+    raw_material_kg = Column(Float, nullable=False)
+    budget = Column(Float, nullable=False)
+    time_available_days = Column(Float, nullable=False)
+    results_json = Column(String, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
 def get_db():
     db = SessionLocal()
     try:
@@ -156,10 +250,11 @@ def get_db():
 
 def seed(db):
     """Populate demo data idempotently. Each table is seeded independently
-    based on whether *that specific table* is empty — NOT gated behind a
-    single early-return on the `weavers` table. This means adding a new
-    seeded table in a future phase populates correctly on an existing
-    database without ever needing to delete loomsense.db."""
+    based on whether *that specific table* is empty — never gated behind a
+    single early-return on `weavers`. This is the pattern established in
+    Phase 7+8 and continued here for every new table; it's what makes
+    Phase 12's real-dataset swap possible without ever deleting the DB or
+    touching APIs/frontend."""
 
     # --- Weavers, users, income history --------------------------------------
     if db.query(Weaver).count() == 0:
@@ -295,8 +390,7 @@ def seed(db):
             ))
         db.commit()
 
-    # --- Phase 8: government schemes (illustrative demo dataset; verify
-    # current eligibility rules before any real-world use) -----------------------
+    # --- Phase 8: government schemes (illustrative demo dataset) --------------
     if db.query(GovernmentScheme).count() == 0:
         schemes = [
             {"name": "PM Vishwakarma", "category": "Credit & Skilling",
@@ -352,4 +446,104 @@ def seed(db):
                 max_income=s["max_income"], requires_shg=s["shg"],
                 benefits=s["benefits"], eligibility_notes=s["notes"], apply_link=s["link"],
             ))
+        db.commit()
+
+    # --- Phase 9: inventory items ----------------------------------------------
+    if db.query(InventoryItem).count() == 0:
+        weavers = db.query(Weaver).all()
+        inventory_seed = {
+            "Lakshmi": [
+                {"item_type": "raw_material", "name": "Cotton Yarn", "unit": "kg",
+                 "available_stock": 8, "predicted_stock": 6, "required_stock": 10,
+                 "low_stock_threshold": 3, "storage_location": "Home storeroom"},
+                {"item_type": "finished_good", "name": "Cotton Saree (finished)", "unit": " units",
+                 "available_stock": 4, "predicted_stock": 3, "required_stock": 12,
+                 "low_stock_threshold": 2, "storage_location": "Cooperative warehouse"},
+            ],
+            "Ravi": [
+                {"item_type": "raw_material", "name": "Silk-Cotton Yarn", "unit": "kg",
+                 "available_stock": 5, "predicted_stock": 4, "required_stock": 8,
+                 "low_stock_threshold": 2, "storage_location": "Home storeroom"},
+                {"item_type": "finished_good", "name": "Silk-Cotton Saree (finished)", "unit": " units",
+                 "available_stock": 2, "predicted_stock": 2, "required_stock": 8,
+                 "low_stock_threshold": 2, "storage_location": "Local depot"},
+            ],
+            "Meena": [
+                {"item_type": "raw_material", "name": "Mulberry Silk Yarn", "unit": "kg",
+                 "available_stock": 3, "predicted_stock": 2, "required_stock": 5,
+                 "low_stock_threshold": 1.5, "storage_location": "Home storeroom"},
+                {"item_type": "finished_good", "name": "Silk Saree (finished)", "unit": " units",
+                 "available_stock": 1, "predicted_stock": 1, "required_stock": 5,
+                 "low_stock_threshold": 1, "storage_location": "Cooperative warehouse"},
+            ],
+        }
+        for w in weavers:
+            for item in inventory_seed.get(w.name, []):
+                db.add(InventoryItem(weaver_id=w.id, **item))
+        db.commit()
+
+    # --- Phase 9: learning resources ---------------------------------------------
+    if db.query(LearningResource).count() == 0:
+        resources = [
+            {"title": "Basics of Warping a Handloom", "resource_type": "video", "category": "Video Tutorials",
+             "description": "Step-by-step guide to preparing the warp before weaving.", "url": None, "duration_minutes": 12},
+            {"title": "Natural Dyeing Techniques", "resource_type": "video", "category": "Traditional Techniques",
+             "description": "Traditional plant-based dyeing methods for cotton and silk yarn.", "url": None, "duration_minutes": 18},
+            {"title": "Handloom Mark Registration Guide", "resource_type": "pdf", "category": "Government PDFs",
+             "description": "Official steps to register for the Handloom Mark and GI tagging.", "url": None, "duration_minutes": None},
+            {"title": "PM Vishwakarma Scheme Booklet", "resource_type": "pdf", "category": "Government PDFs",
+             "description": "Full scheme details, eligibility, and application process.", "url": "https://pmvishwakarma.gov.in", "duration_minutes": None},
+            {"title": "Reducing Yarn Wastage", "resource_type": "article", "category": "Best Practices",
+             "description": "Practical tips to cut down on raw material wastage during weaving.", "url": None, "duration_minutes": 5},
+            {"title": "Pricing Your Handloom Products Fairly", "resource_type": "article", "category": "Best Practices",
+             "description": "How to set prices that cover cost and labour without losing customers.", "url": None, "duration_minutes": 6},
+            {"title": "Power-Assisted Pre-Loom Processes", "resource_type": "video", "category": "Modern Methods",
+             "description": "Modern equipment options for warping and winding that save time.", "url": None, "duration_minutes": 15},
+            {"title": "Jacquard Weaving Fundamentals", "resource_type": "video", "category": "Traditional Techniques",
+             "description": "Introduction to jacquard patterning on a traditional handloom.", "url": None, "duration_minutes": 20},
+        ]
+        for r in resources:
+            db.add(LearningResource(**r))
+        db.commit()
+
+    # --- Phase 9: community profiles & events -------------------------------------
+    if db.query(CommunityProfile).count() == 0:
+        weavers = db.query(Weaver).all()
+        profile_seed = {
+            "Telangana": [
+                {"name": "Pochampally Weavers Cooperative", "profile_type": "shg", "cluster": "Pochampally",
+                 "bio": "120-member cooperative supporting bulk yarn purchase and order-sharing."},
+                {"name": "Anjali Devi", "profile_type": "mentor", "cluster": "Pochampally",
+                 "bio": "30 years of ikkat weaving experience, mentors new weavers on dye techniques."},
+            ],
+            "Madhya Pradesh": [
+                {"name": "Chanderi Weavers Association", "profile_type": "shg", "cluster": "Chanderi",
+                 "bio": "Cluster association coordinating festival-season bulk orders."},
+                {"name": "Suresh Kumar", "profile_type": "expert", "cluster": "Chanderi",
+                 "bio": "Design consultant specializing in modernizing traditional Chanderi motifs."},
+            ],
+            "Tamil Nadu": [
+                {"name": "Kanchipuram Silk Weavers Trust", "profile_type": "shg", "cluster": "Kanchipuram",
+                 "bio": "Trust supporting raw silk procurement and quality certification."},
+                {"name": "Meenakshi Sundaram", "profile_type": "mentor", "cluster": "Kanchipuram",
+                 "bio": "Master weaver specializing in temple-border silk sarees."},
+            ],
+        }
+        for w in weavers:
+            for p in profile_seed.get(w.region, []):
+                db.add(CommunityProfile(name=p["name"], profile_type=p["profile_type"], region=w.region,
+                                         cluster=p["cluster"], bio=p["bio"], contact_info=None, weaver_id=None))
+        db.commit()
+
+    if db.query(CommunityEvent).count() == 0:
+        events = [
+            {"title": "Telangana Handloom Expo", "description": "State-level exhibition and bulk-buyer meet.",
+             "event_date": "2026-09-20", "region": "Telangana", "event_type": "Exhibition"},
+            {"title": "Chanderi Design Workshop", "description": "Workshop on modernizing traditional motifs for export markets.",
+             "event_date": "2026-10-05", "region": "Madhya Pradesh", "event_type": "Workshop"},
+            {"title": "Kanchipuram Silk Mela", "description": "Annual silk saree fair with export house participation.",
+             "event_date": "2026-10-18", "region": "Tamil Nadu", "event_type": "Fair"},
+        ]
+        for e in events:
+            db.add(CommunityEvent(**e))
         db.commit()

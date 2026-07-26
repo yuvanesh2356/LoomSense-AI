@@ -16,6 +16,13 @@ import { NAV_ITEMS, UTILITY_NAV_ITEMS } from "./config/navigation";
 import FestivalPredictor from "./pages/FestivalPredictor";
 import Marketplace from "./pages/Marketplace";
 import GovernmentSchemes from "./pages/GovernmentSchemes";
+import Inventory from "./pages/Inventory";
+import SmartAlerts from "./pages/SmartAlerts";
+import LearningHub from "./pages/LearningHub";
+import Community from "./pages/Community";
+import Analytics from "./pages/Analytics";
+import FabricRecognition from "./pages/FabricRecognition";
+import WhatShouldIWeave from "./pages/WhatShouldIWeave";
 
 interface AuthContextValue {
   me: MeResponse | null;
@@ -158,6 +165,13 @@ export default function App() {
             {/* Phase 5+6 */}
             <Route path="/production-planner" element={<ProductionPlanner />} />
             <Route path="/ai-assistant" element={<AIAssistant />} />
+            <Route path="/inventory" element={<Inventory />} />
+            <Route path="/alerts" element={<SmartAlerts />} />
+            <Route path="/learning-hub" element={<LearningHub />} />
+            <Route path="/community" element={<Community />} />
+            <Route path="/analytics" element={<Analytics />} />
+            <Route path="/fabric-recognition" element={<FabricRecognition />} />
+            <Route path="/what-to-weave" element={<WhatShouldIWeave />} />
 
             {[...NAV_ITEMS, ...UTILITY_NAV_ITEMS]
               .filter((item) => item.comingSoon)

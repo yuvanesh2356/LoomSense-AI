@@ -4,7 +4,7 @@ from datetime import date, datetime, timedelta
 from typing import Optional
 
 import jwt
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
@@ -14,6 +14,8 @@ from database import (
     Base, engine, get_db, seed, SessionLocal,
     Weaver, User, Forecast, Outcome, IncomeRecord, StateDemand, ChatMessage,
     Festival, MarketplaceChannel, GovernmentScheme, WeaverSchemeMatch,
+    InventoryItem, Alert, LearningResource, CommunityProfile, CommunityEvent,
+    FabricRecognitionLog, WeaveRecommendationLog,
 )
 import ai_engine
 import planner_engine
@@ -21,6 +23,11 @@ import assistant_engine
 import festival_engine
 import marketplace_engine
 import scheme_engine
+import inventory_engine
+import alerts_engine
+import analytics_engine
+import fabric_engine
+import recommender_engine
 
 # --- App setup -----------------------------------------------------------
 Base.metadata.create_all(bind=engine)
@@ -79,6 +86,14 @@ class SchemeMatchRequest(BaseModel):
     income: float
     gender: str
     shg: bool = False
+
+
+class WeaveRecommendRequest(BaseModel):
+    weaver_id: Optional[int] = None
+    region: str
+    raw_material_kg: float
+    budget: float
+    time_available_days: float
 
 
 def envelope(data=None, error=None):
@@ -142,12 +157,13 @@ def get_or_create_forecast(w: Weaver, db: Session) -> Forecast:
     return f
 
 
-def get_market_trend(w: Weaver, db: Session) -> dict:
+def get_state_row_for_weaver(w: Weaver, db: Session):
     state_code = ai_engine.STATE_CODE_BY_REGION.get(w.region)
-    state_row = (
-        db.query(StateDemand).filter(StateDemand.state_code == state_code).first()
-        if state_code else None
-    )
+    return db.query(StateDemand).filter(StateDemand.state_code == state_code).first() if state_code else None
+
+
+def get_market_trend(w: Weaver, db: Session) -> dict:
+    state_row = get_state_row_for_weaver(w, db)
     return {
         "growth_pct": state_row.growth_pct if state_row else 0.0,
         "state_name": state_row.state_name if state_row else w.region,
@@ -366,7 +382,6 @@ def assistant_history(weaver_id: int, user: User = Depends(get_current_user), db
     ])
 
 
-# --- Phase 7: Festival Predictor ----------------------------------------------
 @app.get("/api/festivals/predict/{weaver_id}")
 def predict_festivals(weaver_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     w = get_weaver_or_404(weaver_id, db)
@@ -375,7 +390,6 @@ def predict_festivals(weaver_id: int, user: User = Depends(get_current_user), db
     return envelope(predictions)
 
 
-# --- Phase 7: Marketplace Recommendation Engine ------------------------------
 @app.get("/api/marketplace/recommendations/{weaver_id}")
 def marketplace_recommendations(weaver_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     w = get_weaver_or_404(weaver_id, db)
@@ -385,7 +399,6 @@ def marketplace_recommendations(weaver_id: int, user: User = Depends(get_current
     return envelope(ranked)
 
 
-# --- Phase 8: Government Scheme Advisor --------------------------------------
 @app.post("/api/schemes/match")
 def match_schemes(req: SchemeMatchRequest, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     schemes = db.query(GovernmentScheme).all()
@@ -417,6 +430,150 @@ def scheme_history(weaver_id: int, user: User = Depends(get_current_user), db: S
         {"scheme_name": scheme.name, "matched_at": match.matched_at.isoformat()}
         for match, scheme in rows
     ])
+
+
+# --- Phase 9: Smart Inventory Management --------------------------------------
+@app.get("/api/inventory/{weaver_id}")
+def get_inventory(weaver_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    get_weaver_or_404(weaver_id, db)
+    items = db.query(InventoryItem).filter(InventoryItem.weaver_id == weaver_id).all()
+    return envelope([inventory_engine.compute_status(i) for i in items])
+
+
+# --- Phase 9: Smart Alerts -----------------------------------------------------
+@app.get("/api/alerts/{weaver_id}")
+def get_alerts(weaver_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    w = get_weaver_or_404(weaver_id, db)
+    inventory_items = db.query(InventoryItem).filter(InventoryItem.weaver_id == weaver_id).all()
+    state_row = get_state_row_for_weaver(w, db)
+    festival_rows = db.query(Festival).filter(Festival.region == w.region).all()
+    income_records = db.query(IncomeRecord).filter(IncomeRecord.weaver_id == weaver_id).all()
+    f = get_or_create_forecast(w, db)
+    plan = planner_engine.generate_production_plan(w, f)
+
+    alerts_engine.generate_alerts(w, inventory_items, state_row, festival_rows, income_records, plan, db)
+
+    rows = db.query(Alert).filter(Alert.weaver_id == weaver_id).order_by(Alert.created_at.desc()).all()
+    return envelope([
+        {"id": a.id, "alert_type": a.alert_type, "severity": a.severity, "title": a.title,
+         "message": a.message, "read": a.read, "created_at": a.created_at.isoformat()}
+        for a in rows
+    ])
+
+
+@app.patch("/api/alerts/{alert_id}/read")
+def mark_alert_read(alert_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    a = db.query(Alert).filter(Alert.id == alert_id).first()
+    if not a:
+        raise HTTPException(status_code=404, detail="Alert not found")
+    a.read = True
+    db.commit()
+    return envelope({"id": a.id, "read": True})
+
+
+# --- Phase 9: Learning Hub ------------------------------------------------------
+@app.get("/api/learning/resources")
+def learning_resources(category: Optional[str] = None, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    query = db.query(LearningResource)
+    if category:
+        query = query.filter(LearningResource.category == category)
+    rows = query.all()
+    return envelope([
+        {"id": r.id, "title": r.title, "resource_type": r.resource_type, "category": r.category,
+         "description": r.description, "url": r.url, "duration_minutes": r.duration_minutes}
+        for r in rows
+    ])
+
+
+# --- Phase 9: Community Hub -----------------------------------------------------
+@app.get("/api/community/nearby/{weaver_id}")
+def community_nearby(weaver_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    w = get_weaver_or_404(weaver_id, db)
+    rows = db.query(CommunityProfile).filter(CommunityProfile.region == w.region).all()
+    return envelope([
+        {"id": p.id, "name": p.name, "profile_type": p.profile_type, "region": p.region,
+         "cluster": p.cluster, "bio": p.bio, "contact_info": p.contact_info}
+        for p in rows
+    ])
+
+
+@app.get("/api/community/events")
+def community_events(region: Optional[str] = None, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    query = db.query(CommunityEvent)
+    if region:
+        query = query.filter(CommunityEvent.region == region)
+    rows = query.order_by(CommunityEvent.event_date.asc()).all()
+    return envelope([
+        {"id": e.id, "title": e.title, "description": e.description, "event_date": e.event_date,
+         "region": e.region, "event_type": e.event_type}
+        for e in rows
+    ])
+
+
+# --- Phase 10: Advanced Analytics Suite -----------------------------------------
+@app.get("/api/analytics/summary/{weaver_id}")
+def analytics_summary(weaver_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    w = get_weaver_or_404(weaver_id, db)
+    outcomes = (
+        db.query(Outcome)
+        .join(Forecast, Outcome.forecast_id == Forecast.id)
+        .filter(Forecast.weaver_id == weaver_id)
+        .all()
+    )
+    income_records = db.query(IncomeRecord).filter(IncomeRecord.weaver_id == weaver_id).all()
+    state_rows = db.query(StateDemand).all()
+    state_row = get_state_row_for_weaver(w, db)
+    inventory_items = db.query(InventoryItem).filter(InventoryItem.weaver_id == weaver_id).all()
+    inventory_low_count = sum(1 for i in inventory_items if i.available_stock <= i.low_stock_threshold)
+
+    return envelope({
+        "forecast_accuracy_series": analytics_engine.forecast_accuracy_series(outcomes),
+        "profit_trend": analytics_engine.profit_trend(w, income_records),
+        "demand_curve": analytics_engine.demand_curve(income_records),
+        "state_comparison": analytics_engine.state_comparison(state_rows, state_row.state_code if state_row else None),
+        "product_comparison": analytics_engine.product_comparison(),
+        "risk_analysis": analytics_engine.risk_analysis(w, income_records, state_row, inventory_low_count),
+    })
+
+
+# --- Phase 10: Fabric Image Recognition -----------------------------------------
+@app.post("/api/fabric/recognize")
+async def recognize_fabric(
+    weaver_id: int = Form(...),
+    file: UploadFile = File(...),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    w = get_weaver_or_404(weaver_id, db)
+    image_bytes = await file.read()
+    result = fabric_engine.analyze_image(image_bytes)
+
+    state_row = get_state_row_for_weaver(w, db)
+    similar_products = json.loads(state_row.top_products_json)[:3] if state_row else []
+
+    db.add(FabricRecognitionLog(
+        weaver_id=weaver_id, uploaded_filename=file.filename,
+        avg_color_hex=result["avg_color_hex"], detected_pattern=result["detected_pattern"],
+        predicted_category=result["predicted_category"], estimated_price=result["estimated_price"],
+    ))
+    db.commit()
+
+    return envelope({**result, "similar_products": similar_products})
+
+
+# --- Phase 10: "What Should I Weave?" -------------------------------------------
+@app.post("/api/recommend/what-to-weave")
+def recommend_what_to_weave(req: WeaveRecommendRequest, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    state_row = db.query(StateDemand).filter(StateDemand.state_name == req.region).first()
+    results = recommender_engine.recommend_products(state_row, req.raw_material_kg, req.budget, req.time_available_days)
+
+    db.add(WeaveRecommendationLog(
+        weaver_id=req.weaver_id, region=req.region, raw_material_kg=req.raw_material_kg,
+        budget=req.budget, time_available_days=req.time_available_days, results_json=json.dumps(results),
+    ))
+    db.commit()
+
+    return envelope(results)
 
 
 @app.get("/api/health")

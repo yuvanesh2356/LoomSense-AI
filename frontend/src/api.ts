@@ -286,3 +286,98 @@ export async function matchGovernmentSchemes(req: SchemeMatchRequest) {
   const res = await client.post<Envelope<SchemeMatch[]>>("/schemes/match", req);
   return res.data.data;
 }
+// --- Phase 9+10 types ---------------------------------------------------------
+export interface InventoryItem {
+  id: number; item_type: string; name: string; unit: string;
+  available_stock: number; predicted_stock: number; required_stock: number;
+  low_stock_threshold: number; status: "Adequate" | "Low" | "Critical";
+  stock_gap: number; expiry_date: string | null; storage_location: string | null;
+}
+export interface AlertItem {
+  id: number; alert_type: string; severity: "info" | "warning" | "critical";
+  title: string; message: string; read: boolean; created_at: string;
+}
+export interface LearningResource {
+  id: number; title: string; resource_type: "video" | "pdf" | "article";
+  category: string; description: string; url: string | null; duration_minutes: number | null;
+}
+export interface CommunityProfile {
+  id: number; name: string; profile_type: string; region: string; cluster: string;
+  bio: string; contact_info: string | null;
+}
+export interface CommunityEvent {
+  id: number; title: string; description: string; event_date: string;
+  region: string; event_type: string;
+}
+export interface AnalyticsSummary {
+  forecast_accuracy_series: { month: string; accuracy_pct: number }[];
+  profit_trend: { month: string; projected_profit: number; actual_profit: number | null }[];
+  demand_curve: { month: string; demand_index: number }[];
+  state_comparison: { state_code: string; state_name: string; demand_index: number; growth_pct: number; is_your_state: boolean }[];
+  product_comparison: { category: string; unit_price: number; material_per_unit_kg: number; days_per_unit: number }[];
+  risk_analysis: {
+    overall_risk_score: number;
+    component_breakdown: { income_volatility_risk: number; market_risk: number; inventory_risk: number };
+  };
+}
+export interface FabricRecognitionResult {
+  avg_color_hex: string; hue_bucket: string; detected_pattern: string;
+  predicted_category: string; estimated_price: number; similar_products: string[];
+}
+export interface WeaveRecommendation {
+  category: string; quantity: number; expected_income: number;
+  expected_demand_index: number; risk_level: "Low" | "Medium" | "High"; market_note: string;
+}
+
+// --- Phase 9+10 API calls -------------------------------------------------------
+export async function getInventory(weaverId: number) {
+  const res = await client.get<Envelope<InventoryItem[]>>(`/inventory/${weaverId}`);
+  return res.data.data;
+}
+
+export async function getAlerts(weaverId: number) {
+  const res = await client.get<Envelope<AlertItem[]>>(`/alerts/${weaverId}`);
+  return res.data.data;
+}
+
+export async function markAlertRead(alertId: number) {
+  const res = await client.patch<Envelope<{ id: number; read: boolean }>>(`/alerts/${alertId}/read`);
+  return res.data.data;
+}
+
+export async function getLearningResources(category?: string) {
+  const res = await client.get<Envelope<LearningResource[]>>("/learning/resources", { params: category ? { category } : {} });
+  return res.data.data;
+}
+
+export async function getNearbyCommunity(weaverId: number) {
+  const res = await client.get<Envelope<CommunityProfile[]>>(`/community/nearby/${weaverId}`);
+  return res.data.data;
+}
+
+export async function getCommunityEvents(region?: string) {
+  const res = await client.get<Envelope<CommunityEvent[]>>("/community/events", { params: region ? { region } : {} });
+  return res.data.data;
+}
+
+export async function getAnalyticsSummary(weaverId: number) {
+  const res = await client.get<Envelope<AnalyticsSummary>>(`/analytics/summary/${weaverId}`);
+  return res.data.data;
+}
+
+export async function recognizeFabric(weaverId: number, file: File) {
+  const formData = new FormData();
+  formData.append("weaver_id", String(weaverId));
+  formData.append("file", file);
+  const res = await client.post<Envelope<FabricRecognitionResult>>("/fabric/recognize", formData, {
+    headers: { "Content-Type": "multipart/form-data" },
+  });
+  return res.data.data;
+}
+
+export async function recommendWhatToWeave(req: {
+  weaver_id?: number; region: string; raw_material_kg: number; budget: number; time_available_days: number;
+}) {
+  const res = await client.post<Envelope<WeaveRecommendation[]>>("/recommend/what-to-weave", req);
+  return res.data.data;
+}
