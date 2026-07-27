@@ -1,11 +1,14 @@
 """LoomSense AI — FastAPI backend. Single-file API layer."""
 import json
+import logging
 from datetime import date, datetime, timedelta
 from typing import Optional
 
 import jwt
-from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, Form
+from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, Form, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -28,6 +31,13 @@ import alerts_engine
 import analytics_engine
 import fabric_engine
 import recommender_engine
+
+# --- Logging (Phase 11: no new dependency, stdlib logging) -------------------
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s | %(levelname)s | %(message)s",
+)
+logger = logging.getLogger("loomsense")
 
 # --- App setup -----------------------------------------------------------
 Base.metadata.create_all(bind=engine)
@@ -103,6 +113,41 @@ def envelope(data=None, error=None):
         "meta": {"timestamp": datetime.utcnow().isoformat()},
         "error": error,
     }
+
+
+# --- Phase 11: global exception handlers for consistent error responses ------
+# These make every error path (validation, 404s/401s via HTTPException, and
+# unhandled 500s) return the exact same envelope shape the frontend already
+# expects on success, instead of FastAPI's default {"detail": ...} shape.
+# No endpoint body below needed to change for this.
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    first = exc.errors()[0] if exc.errors() else {}
+    field = ".".join(str(p) for p in first.get("loc", [])[1:]) or "request"
+    message = f"Invalid value for '{field}': {first.get('msg', 'validation failed')}"
+    logger.warning("Validation error on %s %s: %s", request.method, request.url.path, message)
+    return JSONResponse(
+        status_code=422,
+        content=envelope(error={"code": "VALIDATION_ERROR", "message": message}),
+    )
+
+
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException):
+    logger.info("HTTPException on %s %s: %s", request.method, request.url.path, exc.detail)
+    return JSONResponse(
+        status_code=exc.status_code,
+        content=envelope(error={"code": f"HTTP_{exc.status_code}", "message": str(exc.detail)}),
+    )
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    logger.exception("Unhandled error on %s %s", request.method, request.url.path)
+    return JSONResponse(
+        status_code=500,
+        content=envelope(error={"code": "INTERNAL_ERROR", "message": "Something went wrong on our end."}),
+    )
 
 
 # --- Auth helpers ------------------------------------------------------------
@@ -181,8 +226,10 @@ def login(req: LoginRequest, db: Session = Depends(get_db)):
         User.username == req.username, User.password == req.password
     ).first()
     if not user:
+        logger.info("Failed login attempt for username=%s", req.username)
         raise HTTPException(status_code=401, detail="Invalid credentials")
     token = create_token(user.id)
+    logger.info("User %s logged in", user.username)
     return envelope({
         "token": token,
         "user": {"id": user.id, "username": user.username, "weaver_id": user.weaver_id},
@@ -432,7 +479,6 @@ def scheme_history(weaver_id: int, user: User = Depends(get_current_user), db: S
     ])
 
 
-# --- Phase 9: Smart Inventory Management --------------------------------------
 @app.get("/api/inventory/{weaver_id}")
 def get_inventory(weaver_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     get_weaver_or_404(weaver_id, db)
@@ -440,7 +486,6 @@ def get_inventory(weaver_id: int, user: User = Depends(get_current_user), db: Se
     return envelope([inventory_engine.compute_status(i) for i in items])
 
 
-# --- Phase 9: Smart Alerts -----------------------------------------------------
 @app.get("/api/alerts/{weaver_id}")
 def get_alerts(weaver_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     w = get_weaver_or_404(weaver_id, db)
@@ -471,7 +516,6 @@ def mark_alert_read(alert_id: int, user: User = Depends(get_current_user), db: S
     return envelope({"id": a.id, "read": True})
 
 
-# --- Phase 9: Learning Hub ------------------------------------------------------
 @app.get("/api/learning/resources")
 def learning_resources(category: Optional[str] = None, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     query = db.query(LearningResource)
@@ -485,7 +529,6 @@ def learning_resources(category: Optional[str] = None, user: User = Depends(get_
     ])
 
 
-# --- Phase 9: Community Hub -----------------------------------------------------
 @app.get("/api/community/nearby/{weaver_id}")
 def community_nearby(weaver_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     w = get_weaver_or_404(weaver_id, db)
@@ -510,7 +553,6 @@ def community_events(region: Optional[str] = None, user: User = Depends(get_curr
     ])
 
 
-# --- Phase 10: Advanced Analytics Suite -----------------------------------------
 @app.get("/api/analytics/summary/{weaver_id}")
 def analytics_summary(weaver_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     w = get_weaver_or_404(weaver_id, db)
@@ -536,7 +578,6 @@ def analytics_summary(weaver_id: int, user: User = Depends(get_current_user), db
     })
 
 
-# --- Phase 10: Fabric Image Recognition -----------------------------------------
 @app.post("/api/fabric/recognize")
 async def recognize_fabric(
     weaver_id: int = Form(...),
@@ -546,7 +587,15 @@ async def recognize_fabric(
 ):
     w = get_weaver_or_404(weaver_id, db)
     image_bytes = await file.read()
-    result = fabric_engine.analyze_image(image_bytes)
+
+    if not image_bytes:
+        raise HTTPException(status_code=422, detail="Uploaded file is empty.")
+
+    try:
+        result = fabric_engine.analyze_image(image_bytes)
+    except Exception:
+        logger.exception("Fabric image analysis failed for weaver_id=%s", weaver_id)
+        raise HTTPException(status_code=422, detail="Could not read this image. Please upload a valid JPG or PNG.")
 
     state_row = get_state_row_for_weaver(w, db)
     similar_products = json.loads(state_row.top_products_json)[:3] if state_row else []
@@ -561,7 +610,6 @@ async def recognize_fabric(
     return envelope({**result, "similar_products": similar_products})
 
 
-# --- Phase 10: "What Should I Weave?" -------------------------------------------
 @app.post("/api/recommend/what-to-weave")
 def recommend_what_to_weave(req: WeaveRecommendRequest, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     state_row = db.query(StateDemand).filter(StateDemand.state_name == req.region).first()

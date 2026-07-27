@@ -16,3 +16,38 @@ body {
 .font-display {
   font-family: "Fraunces", Cambria, Georgia, serif;
 }
+/* --- Phase 11: focus states, scrollbar, and global transition polish --- */
+*:focus-visible {
+  outline: 2px solid #0B4F3C;
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #D8D2C4;
+  border-radius: 8px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #C7C0AE;
+}
+
+/* Smooth, consistent transitions on common interactive elements without
+   having to add a transition class to every single component. */
+button, a, input, select, textarea {
+  transition: background-color 0.15s ease, border-color 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}

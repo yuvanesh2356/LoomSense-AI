@@ -2,8 +2,19 @@ import React, { useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  Menu, Search, Bell, Sun, Moon, Globe, ChevronDown, Plus,
-  TrendingUp, Wallet, LogOut, User as UserIcon,
+  Menu,
+  Search,
+  Bell,
+  Sun,
+  Moon,
+  Globe,
+  ChevronDown,
+  Plus,
+  TrendingUp,
+  Wallet,
+  LogOut,
+  User as UserIcon,
+  type LucideIcon,
 } from "lucide-react";
 import { useAuth } from "../../App";
 import { useClickOutside } from "../../hooks/useClickOutside";
@@ -68,7 +79,7 @@ export default function Topbar({ onOpenMobileDrawer, isMobile }: TopbarProps) {
       style={{ backgroundColor: COLORS.warmWhite, borderColor: "#EAE4D6" }}
     >
       {isMobile && (
-        <button onClick={onOpenMobileDrawer} className="p-2 rounded-lg hover:bg-black/5" aria-label="Open navigation">
+        <button onClick={onOpenMobileDrawer} className="p-2 rounded-lg hover:bg-black/5 active:scale-95" aria-label="Open navigation">
           <Menu size={20} style={{ color: COLORS.emeraldDeep }} />
         </button>
       )}
@@ -132,7 +143,7 @@ export default function Topbar({ onOpenMobileDrawer, isMobile }: TopbarProps) {
       <div className="relative" ref={langRef}>
         <button
           onClick={() => setOpenMenu((m) => (m === "lang" ? null : "lang"))}
-          className="flex items-center gap-1 px-2.5 py-2 rounded-xl hover:bg-black/5 text-sm"
+          className="flex items-center gap-1 px-2.5 py-2 rounded-xl hover:bg-black/5 active:scale-95 text-sm"
           style={{ color: COLORS.charcoalText }}
         >
           <Globe size={17} style={{ opacity: 0.65 }} />
@@ -160,7 +171,7 @@ export default function Topbar({ onOpenMobileDrawer, isMobile }: TopbarProps) {
       {/* Theme switch */}
       <button
         onClick={toggleDarkMode}
-        className="p-2 rounded-xl hover:bg-black/5"
+        className="p-2 rounded-xl hover:bg-black/5 active:scale-95"
         aria-label="Toggle theme"
         title="Toggle theme"
       >
@@ -171,7 +182,7 @@ export default function Topbar({ onOpenMobileDrawer, isMobile }: TopbarProps) {
       <div className="relative" ref={notifRef}>
         <button
           onClick={() => setOpenMenu((m) => (m === "notif" ? null : "notif"))}
-          className="relative p-2 rounded-xl hover:bg-black/5"
+          className="relative p-2 rounded-xl hover:bg-black/5 active:scale-95"
           aria-label="Notifications"
         >
           <Bell size={18} style={{ color: COLORS.charcoalText, opacity: 0.7 }} />
@@ -202,7 +213,7 @@ export default function Topbar({ onOpenMobileDrawer, isMobile }: TopbarProps) {
       <div className="relative" ref={profileRef}>
         <button
           onClick={() => setOpenMenu((m) => (m === "profile" ? null : "profile"))}
-          className="flex items-center gap-2 pl-1 pr-2 py-1 rounded-xl hover:bg-black/5"
+          className="flex items-center gap-2 pl-1 pr-2 py-1 rounded-xl hover:bg-black/5 active:scale-95"
         >
           <div
             className="w-8 h-8 rounded-full flex items-center justify-center text-sm font-semibold"
@@ -240,7 +251,13 @@ function DropdownPanel({
       animate={{ opacity: 1, y: 0, scale: 1 }}
       exit={{ opacity: 0, y: -6, scale: 0.98 }}
       transition={{ duration: 0.15 }}
-      className={`absolute top-full mt-2 ${align === "right" ? "right-0" : "left-0"} ${wide ? "w-80" : "w-56"} rounded-2xl border p-2 shadow-lg z-30`}
+      className={`absolute top-full mt-2 ${
+  wide
+    ? "right-0 w-80 max-w-[calc(100vw-1rem)]"
+    : align === "right"
+      ? "right-0 w-56"
+      : "left-0 w-56"
+} rounded-2xl border p-2 shadow-lg z-30`}
       style={{ backgroundColor: COLORS.warmWhite, borderColor: "#EAE4D6" }}
     >
       {children}
@@ -249,8 +266,16 @@ function DropdownPanel({
 }
 
 function DropdownAction({
-  icon: Icon, label, onClick, danger,
-}: { icon: React.ComponentType<{ size?: number; style?: React.CSSProperties }>; label: string; onClick: () => void; danger?: boolean }) {
+  icon: Icon,
+  label,
+  onClick,
+  danger,
+}: {
+  icon: LucideIcon;
+  label: string;
+  onClick: () => void;
+  danger?: boolean;
+}) {
   return (
     <button
       onClick={onClick}

@@ -26,8 +26,8 @@ const NavigationItem = React.forwardRef<HTMLAnchorElement, NavigationItemProps>(
         to={item.path}
         onClick={onNavigate}
         title={collapsed ? item.label : undefined}
-        aria-current={isActive ? "page" : undefined}
-        className="group relative flex items-center gap-3 rounded-xl px-3 py-2.5 mx-2 outline-none focus-visible:ring-2"
+        className="group relative flex items-center gap-3 rounded-xl px-3 py-2.5 mx-2 outline-none focus-visible:ring-2 active:scale-[0.98] transition-transform"
+        
         style={{ ["--tw-ring-color" as any]: COLORS.gold }}
       >
         {isActive && (

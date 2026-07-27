@@ -1,18 +1,20 @@
-import React, { useEffect, useState } from "react";
+import React, { useState } from "react";
 import {
   ResponsiveContainer, AreaChart, Area, BarChart, Bar, LineChart, Line,
   XAxis, YAxis, Tooltip, CartesianGrid,
 } from "recharts";
 import { motion } from "framer-motion";
 import { Link } from "react-router-dom";
+import { LayoutDashboard } from "lucide-react";
 import { useAuth } from "../App";
 import {
   getDashboardSummary, getIncomeCalendar, getStabilityScore, getForecast,
-  DashboardSummary, IncomeCalendarResponse, StabilityScore, Forecast,
+  getHeatmapStateDetail, HeatmapStateDetail,
 } from "../api";
 import { useHeatmapData } from "../hooks/useHeatmapData";
-import { getHeatmapStateDetail, HeatmapStateDetail } from "../api";
+import { useAsync } from "../hooks/useAsync";
 import StateHeatmapGrid from "../components/charts/StateHeatmapGrid";
+import { DashboardSkeleton, ErrorState, EmptyState } from "../components/feedback";
 import { COLORS } from "../design-system/brand";
 
 function MetricCard({
@@ -22,7 +24,8 @@ function MetricCard({
     <motion.div
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
-      className="rounded-2xl border p-4"
+      whileHover={{ y: -2 }}
+      className="rounded-2xl border p-4 transition-shadow hover:shadow-md"
       style={{ backgroundColor: COLORS.warmWhite, borderColor: "#EAE4D6" }}
     >
       <p className="text-[11px] uppercase tracking-wide font-semibold" style={{ color: COLORS.charcoalText, opacity: 0.55 }}>
@@ -45,41 +48,41 @@ function MetricCard({
 
 export default function Dashboard() {
   const { me } = useAuth();
-  const [summary, setSummary] = useState<DashboardSummary | null>(null);
-  const [income, setIncome] = useState<IncomeCalendarResponse | null>(null);
-  const [stability, setStability] = useState<StabilityScore | null>(null);
-  const [forecast, setForecast] = useState<Forecast | null>(null);
-  const [loading, setLoading] = useState(true);
+  const weaverId = me?.weaver.id;
 
-  const { states } = useHeatmapData();
-  const [selectedCode, setSelectedCode] = useState<string | null>(null);
-  const [stateDetail, setStateDetail] = useState<HeatmapStateDetail | null>(null);
-
-  useEffect(() => {
-    if (!me) return;
-    const weaverId = me.weaver.id;
-    Promise.all([
+  const { data, loading, error, reload } = useAsync(async () => {
+    if (!weaverId) throw new Error("Not signed in");
+    const [summary, income, stability, forecast] = await Promise.all([
       getDashboardSummary(weaverId),
       getIncomeCalendar(weaverId),
       getStabilityScore(weaverId),
       getForecast(weaverId),
-    ]).then(([s, i, st, f]) => {
-      setSummary(s);
-      setIncome(i);
-      setStability(st);
-      setForecast(f);
-      setLoading(false);
-    });
-  }, [me]);
+    ]);
+    return { summary, income, stability, forecast };
+  }, [weaverId]);
+
+  const { states } = useHeatmapData();
+  const [selectedCode, setSelectedCode] = useState<string | null>(null);
+  const [stateDetail, setStateDetail] = useState<HeatmapStateDetail | null>(null);
 
   function handleSelectState(code: string) {
     setSelectedCode(code);
     getHeatmapStateDetail(code).then(setStateDetail);
   }
 
-  if (loading || !summary || !income || !stability || !forecast) {
-    return <div style={{ color: COLORS.charcoalText, opacity: 0.6 }}>Loading your dashboard...</div>;
+  if (loading) return <DashboardSkeleton />;
+  if (error) return <ErrorState message={error} onRetry={reload} />;
+  if (!data) {
+    return (
+      <EmptyState
+        icon={LayoutDashboard}
+        title="Nothing to show yet"
+        description="Once you have a forecast and income history, your dashboard will populate here."
+      />
+    );
   }
+
+  const { summary, income, stability, forecast } = data;
 
   const incomeChartData = income.months.map((m) => ({
     month: m.month.slice(5),
@@ -100,7 +103,6 @@ export default function Dashboard() {
         </p>
       </div>
 
-      {/* Top stat cards */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 gap-3">
         <MetricCard
           label="Today's Demand"
@@ -148,7 +150,6 @@ export default function Dashboard() {
         />
       </div>
 
-      {/* Middle: interactive demand heatmap preview */}
       <div className="rounded-2xl border p-6" style={{ backgroundColor: COLORS.warmWhite, borderColor: "#EAE4D6" }}>
         <div className="flex items-center justify-between mb-4">
           <div>
@@ -161,7 +162,7 @@ export default function Dashboard() {
           </div>
           <Link
             to="/market-trends"
-            className="text-xs font-semibold px-3 py-1.5 rounded-full"
+            className="text-xs font-semibold px-3 py-1.5 rounded-full transition-transform hover:scale-105"
             style={{ backgroundColor: `${COLORS.emeraldDeep}12`, color: COLORS.emeraldDeep }}
           >
             Open full heatmap &rarr;
@@ -186,9 +187,8 @@ export default function Dashboard() {
         )}
       </div>
 
-      {/* Bottom: charts + AI insights */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="rounded-2xl border p-6" style={{ backgroundColor: COLORS.warmWhite, borderColor: "#EAE4D6" }}>
+        <div className="rounded-2xl border p-6 transition-shadow hover:shadow-md" style={{ backgroundColor: COLORS.warmWhite, borderColor: "#EAE4D6" }}>
           <h3 className="font-display text-base font-semibold mb-1" style={{ color: COLORS.emeraldDeep }}>Demand Trend</h3>
           <p className="text-xs mb-3" style={{ color: COLORS.charcoalText, opacity: 0.6 }}>Relative demand index across your rolling calendar.</p>
           <ResponsiveContainer width="100%" height={200}>
@@ -197,12 +197,12 @@ export default function Dashboard() {
               <XAxis dataKey="month" stroke={COLORS.charcoalText} fontSize={11} />
               <YAxis stroke={COLORS.charcoalText} fontSize={11} />
               <Tooltip contentStyle={{ borderRadius: 12, border: "1px solid #EDEBE6" }} />
-              <Line type="monotone" dataKey="demand" stroke={COLORS.gold} strokeWidth={2.5} dot={false} />
+              <Line type="monotone" dataKey="demand" stroke={COLORS.gold} strokeWidth={2.5} dot={false} isAnimationActive />
             </LineChart>
           </ResponsiveContainer>
         </div>
 
-        <div className="rounded-2xl border p-6" style={{ backgroundColor: COLORS.warmWhite, borderColor: "#EAE4D6" }}>
+        <div className="rounded-2xl border p-6 transition-shadow hover:shadow-md" style={{ backgroundColor: COLORS.warmWhite, borderColor: "#EAE4D6" }}>
           <h3 className="font-display text-base font-semibold mb-1" style={{ color: COLORS.emeraldDeep }}>Income Trend</h3>
           <p className="text-xs mb-3" style={{ color: COLORS.charcoalText, opacity: 0.6 }}>Projected vs. actual monthly income.</p>
           <ResponsiveContainer width="100%" height={200}>
@@ -217,13 +217,13 @@ export default function Dashboard() {
               <XAxis dataKey="month" stroke={COLORS.charcoalText} fontSize={11} />
               <YAxis stroke={COLORS.charcoalText} fontSize={11} />
               <Tooltip contentStyle={{ borderRadius: 12, border: "1px solid #EDEBE6" }} formatter={(v: number) => [`\u20b9${v.toLocaleString("en-IN")}`, ""]} />
-              <Area type="monotone" dataKey="projected" stroke={COLORS.emeraldDeep} fill="url(#proj2)" strokeWidth={2} />
-              <Area type="monotone" dataKey="actual" stroke={COLORS.gold} fill="none" strokeWidth={2} />
+              <Area type="monotone" dataKey="projected" stroke={COLORS.emeraldDeep} fill="url(#proj2)" strokeWidth={2} isAnimationActive />
+              <Area type="monotone" dataKey="actual" stroke={COLORS.gold} fill="none" strokeWidth={2} isAnimationActive />
             </AreaChart>
           </ResponsiveContainer>
         </div>
 
-        <div className="rounded-2xl border p-6" style={{ backgroundColor: COLORS.warmWhite, borderColor: "#EAE4D6" }}>
+        <div className="rounded-2xl border p-6 transition-shadow hover:shadow-md" style={{ backgroundColor: COLORS.warmWhite, borderColor: "#EAE4D6" }}>
           <h3 className="font-display text-base font-semibold mb-1" style={{ color: COLORS.emeraldDeep }}>Seasonality</h3>
           <p className="text-xs mb-3" style={{ color: COLORS.charcoalText, opacity: 0.6 }}>Which months naturally run higher for your category.</p>
           <ResponsiveContainer width="100%" height={200}>
@@ -232,7 +232,7 @@ export default function Dashboard() {
               <XAxis dataKey="month" stroke={COLORS.charcoalText} fontSize={11} />
               <YAxis stroke={COLORS.charcoalText} fontSize={11} />
               <Tooltip contentStyle={{ borderRadius: 12, border: "1px solid #EDEBE6" }} />
-              <Bar dataKey="projected" fill={COLORS.gold} radius={[6, 6, 0, 0]} />
+              <Bar dataKey="projected" fill={COLORS.gold} radius={[6, 6, 0, 0]} isAnimationActive />
             </BarChart>
           </ResponsiveContainer>
         </div>
