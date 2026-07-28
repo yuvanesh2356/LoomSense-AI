@@ -1,22 +1,23 @@
 import React, { useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
+import { useTranslation } from "react-i18next";
 import { Send, Mic, Volume2, Bot, User as UserIcon } from "lucide-react";
 import { useAuth } from "../App";
+import { useLanguage } from "../context/LanguageProvider";
 import { getChatHistory, sendChatMessage, ChatMessage as ChatMessageType } from "../api";
 import { useVoice } from "../hooks/useVoice";
 import { COLORS } from "../design-system/brand";
 
-const LANGUAGES = [
-  { code: "en", label: "English" },
-  { code: "hi", label: "\u0939\u093f\u0928\u094d\u0926\u0940" },
-  { code: "ta", label: "\u0ba4\u0bae\u0bbf\u0bb4\u0bcd" },
-];
-
 export default function AIAssistant() {
   const { me } = useAuth();
+  const { t } = useTranslation("assistant");
+  // Phase 12: language is no longer local state — this page now consumes
+  // the same global LanguageProvider the Topbar's selector writes to.
+  // Switching language anywhere in the app now changes what the
+  // Assistant responds in, without the user setting it twice.
+  const { language } = useLanguage();
   const [messages, setMessages] = useState<ChatMessageType[]>([]);
   const [input, setInput] = useState("");
-  const [language, setLanguage] = useState("en");
   const [sending, setSending] = useState(false);
   const [voiceReplies, setVoiceReplies] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -31,6 +32,13 @@ export default function AIAssistant() {
   useEffect(() => {
     if (transcript) setInput(transcript);
   }, [transcript]);
+
+  // Phase 12: if the global language changes mid-conversation, subsequent
+  // voice recognition/synthesis should switch too — useVoice already
+  // re-initializes its recognizer when `language` changes (see its
+  // internal useEffect dependency), so no extra wiring is needed here
+  // beyond passing the (now global) `language` value, which already
+  // happens via the `useVoice(language)` call below.
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
@@ -53,23 +61,16 @@ export default function AIAssistant() {
       <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
         <div>
           <h1 className="font-display text-2xl font-semibold" style={{ color: COLORS.emeraldDeep }}>
-            AI Weaver Consultant
+            {t("title")}
           </h1>
           <p className="text-sm mt-1" style={{ color: COLORS.charcoalText, opacity: 0.65 }}>
-            Ask about demand, production, raw materials, pricing, or inventory.
+            {t("subtitle")}
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <select
-            value={language}
-            onChange={(e) => setLanguage(e.target.value)}
-            className="text-sm border rounded-lg px-2.5 py-1.5"
-            style={{ borderColor: "#EAE4D6", color: COLORS.charcoalText }}
-          >
-            {LANGUAGES.map((l) => (
-              <option key={l.code} value={l.code}>{l.label}</option>
-            ))}
-          </select>
+          {/* Phase 12: the page-local language <select> is removed — the
+              Topbar's language selector is now the single place language
+              is changed anywhere in the app. */}
           <button
             onClick={() => setVoiceReplies((v) => !v)}
             title={voiceSupported ? "Toggle spoken replies" : "Voice not supported in this browser"}
@@ -89,7 +90,7 @@ export default function AIAssistant() {
       >
         {messages.length === 0 && (
           <p className="text-sm text-center py-10" style={{ color: COLORS.charcoalText, opacity: 0.5 }}>
-            Start the conversation &mdash; try "What's the demand like right now?"
+            {t("empty_state")}
           </p>
         )}
         {messages.map((m, i) => (
@@ -126,7 +127,7 @@ export default function AIAssistant() {
         <button
           onClick={startListening}
           disabled={!voiceSupported}
-          title={voiceSupported ? "Speak your question" : "Voice input not supported in this browser"}
+          title={voiceSupported ? "Speak your question" : t("voice_not_supported")}
           className="p-3 rounded-xl border disabled:opacity-40"
           style={{ borderColor: "#EAE4D6", backgroundColor: listening ? `${COLORS.gold}25` : COLORS.warmWhite }}
         >
@@ -136,7 +137,7 @@ export default function AIAssistant() {
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && handleSend()}
-          placeholder="Type or speak your question..."
+          placeholder={t("placeholder")}
           className="flex-1 rounded-xl border px-4 py-3 text-sm outline-none"
           style={{ borderColor: "#EAE4D6" }}
         />

@@ -11,6 +11,7 @@ import PageLoader from "./pages/PageLoader";
 import ErrorBoundary from "./components/ErrorBoundary";
 import AnimatedLoom from "./landing/AnimatedLoom";
 import { COLORS } from "./design-system/brand";
+import { LanguageProvider } from "./context/LanguageProvider";
 
 // Entry screens stay eagerly imported — no benefit to code-splitting the
 // very first thing a visitor sees; everything past login is lazy-loaded
@@ -275,6 +276,7 @@ export default function App() {
     <ErrorBoundary>
       <BrowserRouter>
         <AuthProvider>
+          <LanguageProvider>
           <Routes>
             <Route path="/" element={<LandingPage />} />
             <Route path="/login" element={<LoginPage />} />
@@ -365,6 +367,7 @@ export default function App() {
 
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
+          </LanguageProvider>
         </AuthProvider>
       </BrowserRouter>
     </ErrorBoundary>

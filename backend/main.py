@@ -1,6 +1,7 @@
 """LoomSense AI — FastAPI backend. Single-file API layer."""
 import json
 import logging
+import os
 from datetime import date, datetime, timedelta
 from typing import Optional
 
@@ -14,7 +15,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from database import (
-    Base, engine, get_db, seed, SessionLocal,
+    Base, engine, get_db, seed, SessionLocal, run_migrations,
     Weaver, User, Forecast, Outcome, IncomeRecord, StateDemand, ChatMessage,
     Festival, MarketplaceChannel, GovernmentScheme, WeaverSchemeMatch,
     InventoryItem, Alert, LearningResource, CommunityProfile, CommunityEvent,
@@ -41,11 +42,20 @@ logger = logging.getLogger("loomsense")
 
 # --- App setup -----------------------------------------------------------
 Base.metadata.create_all(bind=engine)
+run_migrations(engine)  # Phase 12: adds preferred_language/preferred_theme to existing DBs
 app = FastAPI(title="LoomSense AI API")
+
+# Phase 12: CORS origins are now environment-driven. "*" is fine for local
+# dev; Phase 14 deployment must set ALLOWED_ORIGINS to the real frontend
+# origin(s) instead, since a wildcard is not safe once real user auth exists.
+_allowed_origins_env = os.environ.get("ALLOWED_ORIGINS", "*")
+_allowed_origins = ["*"] if _allowed_origins_env == "*" else [
+    o.strip() for o in _allowed_origins_env.split(",")
+]
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_allowed_origins,
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -57,7 +67,11 @@ try:
 finally:
     _seed_db.close()
 
-JWT_SECRET = "loomsense-hackathon-demo-secret"
+# Phase 12: JWT_SECRET now environment-driven. The fallback value below is
+# for local development only — Phase 14 deployment MUST set a real
+# JWT_SECRET env var, and Phase 13 removes this signing scheme entirely
+# in favor of Firebase-issued tokens.
+JWT_SECRET = os.environ.get("JWT_SECRET", "loomsense-hackathon-demo-secret")
 JWT_ALGO = "HS256"
 JWT_EXPIRY_HOURS = 12
 bearer_scheme = HTTPBearer()
@@ -236,12 +250,67 @@ def login(req: LoginRequest, db: Session = Depends(get_db)):
     })
 
 
+class UpdateMeRequest(BaseModel):
+    # All fields optional — PATCH semantics, only supplied fields change.
+    name: Optional[str] = None
+    cluster: Optional[str] = None
+    product_category: Optional[str] = None
+    region: Optional[str] = None
+    weekly_capacity: Optional[int] = None
+    preferred_language: Optional[str] = None
+    preferred_theme: Optional[str] = None
+
+
 @app.get("/api/me")
 def me(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     w = db.query(Weaver).filter(Weaver.id == user.weaver_id).first()
     return envelope({
         "user_id": user.id,
         "username": user.username,
+        "preferred_language": user.preferred_language,
+        "preferred_theme": user.preferred_theme,
+        "weaver": {
+            "id": w.id, "name": w.name, "cluster": w.cluster,
+            "product_category": w.product_category, "region": w.region,
+            "weekly_capacity": w.weekly_capacity,
+        },
+    })
+
+
+@app.patch("/api/me")
+def update_me(req: UpdateMeRequest, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Phase 12: profile + preference updates, scoped entirely to the
+    authenticated user's own record — no ID is ever accepted from the
+    client. This ownership pattern (identity derived from the verified
+    token, never from a client-supplied ID) is deliberately the same
+    pattern Firebase-verified tokens will use in Phase 13, so this
+    endpoint requires zero redesign when that migration happens — only
+    the token-verification call inside get_current_user changes.
+    """
+    w = db.query(Weaver).filter(Weaver.id == user.weaver_id).first()
+    if not w:
+        raise HTTPException(status_code=404, detail="Weaver profile not found")
+
+    weaver_fields = ["name", "cluster", "product_category", "region", "weekly_capacity"]
+    for field in weaver_fields:
+        value = getattr(req, field)
+        if value is not None:
+            setattr(w, field, value)
+
+    if req.preferred_language is not None:
+        user.preferred_language = req.preferred_language
+    if req.preferred_theme is not None:
+        user.preferred_theme = req.preferred_theme
+
+    db.commit()
+    db.refresh(w)
+    db.refresh(user)
+
+    return envelope({
+        "user_id": user.id,
+        "username": user.username,
+        "preferred_language": user.preferred_language,
+        "preferred_theme": user.preferred_theme,
         "weaver": {
             "id": w.id, "name": w.name, "cluster": w.cluster,
             "product_category": w.product_category, "region": w.region,

@@ -1,14 +1,20 @@
-"""SQLite database setup, models, and demo seed data for LoomSense AI."""
+"""SQLite/Postgres database setup, models, and demo seed data for LoomSense AI."""
 import json
+import os
 from datetime import date, datetime
 from sqlalchemy import (
     create_engine, Column, Integer, String, Float, Date, DateTime,
-    ForeignKey, Boolean
+    ForeignKey, Boolean, inspect, text
 )
 from sqlalchemy.orm import declarative_base, sessionmaker, relationship
 
-DATABASE_URL = "sqlite:///./loomsense.db"
-engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
+# Phase 12: environment-driven so Phase 15's Postgres migration is a
+# config change, not a code change. SQLite needs check_same_thread=False
+# for FastAPI's threaded request handling; Postgres does not accept (or
+# need) that argument, so it's applied conditionally.
+DATABASE_URL = os.environ.get("DATABASE_URL", "sqlite:///./loomsense.db")
+_connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
+engine = create_engine(DATABASE_URL, connect_args=_connect_args)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
@@ -33,6 +39,11 @@ class User(Base):
     username = Column(String, unique=True, index=True, nullable=False)
     password = Column(String, nullable=False)
     weaver_id = Column(Integer, ForeignKey("weavers.id"))
+    # Phase 12: language/theme preference, persisted per-user so switching
+    # devices or logging back in restores the same choice. Written via the
+    # new auth-derived PATCH /api/me endpoint below.
+    preferred_language = Column(String, default="en")
+    preferred_theme = Column(String, default="light")
 
     weaver = relationship("Weaver", back_populates="users")
 
@@ -238,6 +249,46 @@ class WeaveRecommendationLog(Base):
     time_available_days = Column(Float, nullable=False)
     results_json = Column(String, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class NotificationPreference(Base):
+    """Phase 12: Settings module notification channel toggles. Schema is
+    provider-agnostic (just a channel + enabled flag) so it doesn't need
+    to change when Firebase (Phase 13) or real notification delivery
+    (later) are added."""
+    __tablename__ = "notification_preferences"
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    channel = Column(String, nullable=False)   # in_app | sms | email
+    enabled = Column(Boolean, default=True)
+
+
+def _ensure_column(engine, table_name: str, column_name: str, ddl_type: str, default_sql: str):
+    """Phase 12: lightweight migration helper.
+
+    `Base.metadata.create_all()` only creates tables that don't exist yet —
+    it does NOT add new columns to tables that already exist (true for
+    both SQLite and Postgres). Since this project's existing databases
+    already have a `users` table without `preferred_language`/
+    `preferred_theme`, those columns need an explicit ALTER TABLE, run
+    once, idempotently, at startup. Using SQLAlchemy's inspector (not
+    PRAGMA/information_schema directly) keeps this identical across
+    SQLite today and Postgres after the Phase 15 migration.
+    """
+    inspector = inspect(engine)
+    existing_columns = [col["name"] for col in inspector.get_columns(table_name)]
+    if column_name not in existing_columns:
+        with engine.connect() as conn:
+            conn.execute(text(
+                f"ALTER TABLE {table_name} ADD COLUMN {column_name} {ddl_type} DEFAULT {default_sql}"
+            ))
+            conn.commit()
+
+
+def run_migrations(engine):
+    """Called once at app startup, after Base.metadata.create_all()."""
+    _ensure_column(engine, "users", "preferred_language", "VARCHAR", "'en'")
+    _ensure_column(engine, "users", "preferred_theme", "VARCHAR", "'light'")
 
 
 def get_db():

@@ -1,0 +1,8 @@
+{
+  "title": "AI Weaver Consultant",
+  "subtitle": "Ask about demand, production, raw materials, pricing, or inventory.",
+  "empty_state": "Start the conversation \u2014 try \"What's the demand like right now?\"",
+  "placeholder": "Type or speak your question...",
+  "voice_not_supported": "Voice input not supported in this browser",
+  "spoken_replies_title": "Toggle spoken replies"
+}

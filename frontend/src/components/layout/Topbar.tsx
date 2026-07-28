@@ -1,5 +1,6 @@
 import React, { useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Menu,
@@ -17,15 +18,11 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { useAuth } from "../../App";
+import { useLanguage } from "../../context/LanguageProvider";
+import { SUPPORTED_LANGUAGES } from "../../config/languages";
 import { useClickOutside } from "../../hooks/useClickOutside";
 import { COLORS } from "../../design-system/brand";
 import Breadcrumb from "./Breadcrumb";
-
-const LANGUAGES = [
-  { code: "en", label: "English" },
-  { code: "hi", label: "हिन्दी" },
-  { code: "ta", label: "தமிழ்" },
-];
 
 const MOCK_ALERTS = [
   { title: "Festival demand rising", detail: "Ganesh Chaturthi lift detected for Pochampally cotton.", time: "2h ago" },
@@ -41,9 +38,13 @@ interface TopbarProps {
 export default function Topbar({ onOpenMobileDrawer, isMobile }: TopbarProps) {
   const { me, logout } = useAuth();
   const navigate = useNavigate();
+  const { t } = useTranslation("common");
 
   const [dark, setDark] = useState(false);
-  const [language, setLanguage] = useState(LANGUAGES[0]);
+  // Phase 12: language is no longer local state — Topbar reads/writes the
+  // single global LanguageProvider, same source AI Assistant now consumes.
+  const { language, setLanguage } = useLanguage();
+  const currentLanguage = SUPPORTED_LANGUAGES.find((l) => l.code === language) ?? SUPPORTED_LANGUAGES[0];
   const [openMenu, setOpenMenu] = useState<"lang" | "notif" | "profile" | "quick" | null>(null);
 
   const langRef = useRef<HTMLDivElement>(null!);
@@ -97,7 +98,7 @@ export default function Topbar({ onOpenMobileDrawer, isMobile }: TopbarProps) {
           <Search size={16} style={{ color: COLORS.charcoalText, opacity: 0.5 }} />
           <input
             type="text"
-            placeholder="Search forecasts, products, weavers..."
+            placeholder={t("search_placeholder")}
             className="flex-1 bg-transparent text-sm outline-none placeholder:opacity-60"
             style={{ color: COLORS.charcoalText }}
           />
@@ -127,40 +128,42 @@ export default function Topbar({ onOpenMobileDrawer, isMobile }: TopbarProps) {
           className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium text-white"
           style={{ backgroundColor: COLORS.emeraldDeep }}
         >
-          <Plus size={15} /> <span className="hidden sm:inline">Quick Actions</span>
+          <Plus size={15} /> <span className="hidden sm:inline">{t("quick_actions")}</span>
         </button>
         <AnimatePresence>
           {openMenu === "quick" && (
             <DropdownPanel>
-              <DropdownAction icon={TrendingUp} label="View today's forecast" onClick={() => { navigate("/forecast"); setOpenMenu(null); }} />
-              <DropdownAction icon={Wallet} label="Open income calendar" onClick={() => { navigate("/income"); setOpenMenu(null); }} />
+              <DropdownAction icon={TrendingUp} label={t("view_todays_forecast")} onClick={() => { navigate("/forecast"); setOpenMenu(null); }} />
+              <DropdownAction icon={Wallet} label={t("open_income_calendar")} onClick={() => { navigate("/income"); setOpenMenu(null); }} />
             </DropdownPanel>
           )}
         </AnimatePresence>
       </div>
 
-      {/* Language selector */}
+      {/* Language selector — single source of truth via LanguageProvider */}
       <div className="relative" ref={langRef}>
         <button
           onClick={() => setOpenMenu((m) => (m === "lang" ? null : "lang"))}
-          className="flex items-center gap-1 px-2.5 py-2 rounded-xl hover:bg-black/5 active:scale-95 text-sm"
+          className="flex items-center gap-1 px-2.5 py-2 rounded-xl hover:bg-black/5 text-sm"
           style={{ color: COLORS.charcoalText }}
+          title={t("language")}
         >
           <Globe size={17} style={{ opacity: 0.65 }} />
-          <span className="hidden sm:inline">{language.label}</span>
+          <span className="hidden sm:inline">{currentLanguage.nativeLabel}</span>
           <ChevronDown size={13} style={{ opacity: 0.5 }} />
         </button>
         <AnimatePresence>
           {openMenu === "lang" && (
             <DropdownPanel>
-              {LANGUAGES.map((l) => (
+              {SUPPORTED_LANGUAGES.map((l) => (
                 <button
                   key={l.code}
-                  onClick={() => { setLanguage(l); setOpenMenu(null); }}
+                  onClick={() => { setLanguage(l.code); setOpenMenu(null); }}
                   className="w-full text-left px-3 py-2 rounded-lg text-sm hover:bg-black/5"
-                  style={{ color: l.code === language.code ? COLORS.emeraldDeep : COLORS.charcoalText, fontWeight: l.code === language.code ? 600 : 400 }}
+                  style={{ color: l.code === language ? COLORS.emeraldDeep : COLORS.charcoalText, fontWeight: l.code === language ? 600 : 400 }}
                 >
-                  {l.label}
+                  {l.nativeLabel}
+                  {l.code !== "en" && <span className="ml-1.5 text-xs opacity-50">({l.label})</span>}
                 </button>
               ))}
             </DropdownPanel>
@@ -195,7 +198,7 @@ export default function Topbar({ onOpenMobileDrawer, isMobile }: TopbarProps) {
           {openMenu === "notif" && (
             <DropdownPanel wide>
               <p className="px-3 pb-2 text-xs font-semibold uppercase tracking-wide" style={{ color: COLORS.charcoalText, opacity: 0.5 }}>
-                Recent Alerts
+                {t("recent_alerts")}
               </p>
               {MOCK_ALERTS.map((a, i) => (
                 <div key={i} className="px-3 py-2.5 rounded-lg hover:bg-black/5">
@@ -230,8 +233,8 @@ export default function Topbar({ onOpenMobileDrawer, isMobile }: TopbarProps) {
                 <p className="text-sm font-medium" style={{ color: COLORS.emeraldDeep }}>{me?.weaver.name}</p>
                 <p className="text-xs" style={{ color: COLORS.charcoalText, opacity: 0.55 }}>{me?.weaver.cluster}</p>
               </div>
-              <DropdownAction icon={UserIcon} label="View profile" onClick={() => { navigate("/settings"); setOpenMenu(null); }} />
-              <DropdownAction icon={LogOut} label="Log out" onClick={logout} danger />
+              <DropdownAction icon={UserIcon} label={t("view_profile")} onClick={() => { navigate("/settings"); setOpenMenu(null); }} />
+              <DropdownAction icon={LogOut} label={t("sign_out")} onClick={logout} danger />
             </DropdownPanel>
           )}
         </AnimatePresence>

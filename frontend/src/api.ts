@@ -1,6 +1,10 @@
 import axios from "axios";
 
-const API_BASE = "http://localhost:8000/api"; // keep your deployed URL here if different
+// Phase 12: environment-driven so switching between local dev and your
+// deployed backend (Phase 14) is a .env change, not a code edit — this
+// replaces the manual "remember to swap this URL" step from every
+// previous phase of this build.
+const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000/api";
 
 export const client = axios.create({ baseURL: API_BASE });
 
@@ -23,7 +27,19 @@ export interface WeaverProfile {
 export interface MeResponse {
   user_id: number;
   username: string;
+  preferred_language: string;
+  preferred_theme: string;
   weaver: WeaverProfile;
+}
+
+export interface UpdateMeRequest {
+  name?: string;
+  cluster?: string;
+  product_category?: string;
+  region?: string;
+  weekly_capacity?: number;
+  preferred_language?: string;
+  preferred_theme?: string;
 }
 
 export interface Forecast {
@@ -143,6 +159,11 @@ export async function login(username: string, password: string) {
 
 export async function getMe() {
   const res = await client.get<Envelope<MeResponse>>("/me");
+  return res.data.data;
+}
+
+export async function updateMe(req: UpdateMeRequest) {
+  const res = await client.patch<Envelope<MeResponse>>("/me", req);
   return res.data.data;
 }
 

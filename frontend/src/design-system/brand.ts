@@ -5,9 +5,10 @@
  * team finalizes it. Every screen reads from this constant, so swapping
  * "Vastrayan" for "WeaverOS" or any other name is a one-line change.
  */
-export const APP_NAME = "Vastrayan";
+export const APP_NAME = "LoomSense AI";
 export const APP_TAGLINE = "Weaving Intelligence into Every Thread.";
 export const APP_TAGLINE_ALT = "India's Digital Mission for the Handloom Weaver.";
+export const APP_VERSION = "1.0.0-phase12";
 
 // --- Color tokens (mirrors tailwind.config.js `theme.extend.colors`) --------
 // Kept as plain hex constants too, because chart libraries (Recharts) and
